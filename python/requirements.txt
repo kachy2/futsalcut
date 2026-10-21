@@ -1,0 +1,13 @@
+# Pinned for the no-AVX test host (verified 2026-10-21). DVR-Scan is installed separately with
+# --no-deps (see docker/py.Dockerfile) because it pins the GUI OpenCV build; its runtime deps are here.
+av==19.0.1
+numpy==2.2.6
+onnxruntime==1.29.0
+opencv-contrib-python-headless==4.12.0.88
+pytest==9.1.1
+click==8.2.1
+pillow==13.0.0
+platformdirs==4.13.5
+scenedetect==0.6.7.1
+screeninfo==0.8.1
+tqdm==4.70.1

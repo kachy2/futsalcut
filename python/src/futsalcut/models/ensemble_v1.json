@@ -1,0 +1,228 @@
+{
+ "version": 1,
+ "created": "2026-10-20",
+ "trained_on": [
+  "video_1"
+ ],
+ "gt": "strict (2+ players in the counting zone)",
+ "threshold": 0.3,
+ "post": {
+  "smooth_window": 3,
+  "smooth_need": 2,
+  "merge_gap": 5.0,
+  "min_len": 3.0,
+  "pad_before": 2.0,
+  "pad_after": 2.0
+ },
+ "detector": {
+  "model": "dfine_n_coco.onnx (ustc-community/dfine-nano-coco@066438d, Apache-2.0)",
+  "min_score": 0.4,
+  "perspective_stride": 12,
+  "cascade": [
+   0.05,
+   0.95
+  ]
+ },
+ "perspectives": {
+  "video_1": {
+   "a": 0.757927775337238,
+   "c": 5.787911269106816,
+   "source": "detector"
+  }
+ },
+ "oof": {
+  "light": {
+   "video_1": {
+    "cv": {
+     "precision": 0.8364,
+     "recall": 0.8846,
+     "f1": 0.8598,
+     "tp": 46,
+     "fp": 9,
+     "fn": 6
+    },
+    "cv_f1_ci95": [
+     0.6885,
+     0.9423
+    ],
+    "edit": {
+     "prf_band": {
+      "precision": 0.8095,
+      "recall": 0.9808,
+      "f1": 0.887,
+      "tp": 51,
+      "fp": 12,
+      "fn": 1
+     },
+     "event_recall": 0.875,
+     "episodes": 8,
+     "event_recall_3s": 1.0,
+     "episodes_3s": 7,
+     "false_scene_rate": 0.2,
+     "scenes": 5,
+     "scenes_per_episode": 0.625,
+     "median_start_err_s": 2.03,
+     "median_end_err_s": 3.0,
+     "kept_ratio": 0.1162,
+     "gt_ratio": 0.0737
+    }
+   }
+  },
+  "full": {
+   "video_1": {
+    "cv": {
+     "precision": 0.9038,
+     "recall": 0.9038,
+     "f1": 0.9038,
+     "tp": 47,
+     "fp": 5,
+     "fn": 5
+    },
+    "cv_f1_ci95": [
+     0.7825,
+     0.9735
+    ],
+    "edit": {
+     "prf_band": {
+      "precision": 0.9444,
+      "recall": 0.9808,
+      "f1": 0.9623,
+      "tp": 51,
+      "fp": 3,
+      "fn": 1
+     },
+     "event_recall": 0.875,
+     "episodes": 8,
+     "event_recall_3s": 1.0,
+     "episodes_3s": 7,
+     "false_scene_rate": 0.0,
+     "scenes": 4,
+     "scenes_per_episode": 0.5,
+     "median_start_err_s": 2.0,
+     "median_end_err_s": 3.0,
+     "kept_ratio": 0.1064,
+     "gt_ratio": 0.0737
+    }
+   }
+  },
+  "cascade": {
+   "video_1": {
+    "cv": {
+     "precision": 0.9038,
+     "recall": 0.9038,
+     "f1": 0.9038,
+     "tp": 47,
+     "fp": 5,
+     "fn": 5
+    },
+    "cv_f1_ci95": [
+     0.7825,
+     0.9735
+    ],
+    "edit": {
+     "prf_band": {
+      "precision": 0.9444,
+      "recall": 0.9808,
+      "f1": 0.9623,
+      "tp": 51,
+      "fp": 3,
+      "fn": 1
+     },
+     "event_recall": 0.875,
+     "episodes": 8,
+     "event_recall_3s": 1.0,
+     "episodes_3s": 7,
+     "false_scene_rate": 0.0,
+     "scenes": 4,
+     "scenes_per_episode": 0.5,
+     "median_start_err_s": 2.0,
+     "median_end_err_s": 3.0,
+     "kept_ratio": 0.1064,
+     "gt_ratio": 0.0737
+    },
+    "detector_share": 0.0812
+   }
+  }
+ },
+ "light": {
+  "names": [
+   "fg_zone_w_gain",
+   "pe_foot",
+   "count_foot",
+   "framediff_zone"
+  ],
+  "weights": [
+   2.255941967333971,
+   2.30161412039693,
+   0.2881483348900425,
+   1.5449198908302628
+  ],
+  "bias": -5.6205850626457785,
+  "calibrators": {
+   "fg_zone_w_gain": {
+    "scale": 0.13232626353456467,
+    "a": 7.884716755590626,
+    "b": -6.2030930972783285
+   },
+   "pe_foot": {
+    "scale": 0.3309695335040431,
+    "a": 8.223932997532403,
+    "b": -6.439786001038981
+   },
+   "count_foot": {
+    "scale": 0.033096953350404315,
+    "a": 4.300937265559426,
+    "b": -4.273230234265862
+   },
+   "framediff_zone": {
+    "scale": 0.00266794832811841,
+    "a": 5.371666909946816,
+    "b": -5.39764671021828
+   }
+  }
+ },
+ "full": {
+  "names": [
+   "fg_zone_w_gain",
+   "pe_foot",
+   "count_foot",
+   "framediff_zone",
+   "dfine_count"
+  ],
+  "weights": [
+   1.9738372553763774,
+   1.374613078563223,
+   0.2103220229519603,
+   1.1573695063585299,
+   2.621596549055493
+  ],
+  "bias": -6.629154366699161,
+  "calibrators": {
+   "fg_zone_w_gain": {
+    "scale": 0.13232626353456467,
+    "a": 7.884716755590626,
+    "b": -6.2030930972783285
+   },
+   "pe_foot": {
+    "scale": 0.3309695335040431,
+    "a": 8.223932997532403,
+    "b": -6.439786001038981
+   },
+   "count_foot": {
+    "scale": 0.033096953350404315,
+    "a": 4.300937265559426,
+    "b": -4.273230234265862
+   },
+   "framediff_zone": {
+    "scale": 0.00266794832811841,
+    "a": 5.371666909946816,
+    "b": -5.39764671021828
+   },
+   "dfine_count": {
+    "scale": 1.0922621428966521,
+    "a": 9.332958048333209,
+    "b": -9.382688061712848
+   }
+  }
+ }
+}
