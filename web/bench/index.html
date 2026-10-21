@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebCodecs Bench</title>
+  <style>
+    :root { --bg: #fafaf7; --fg: #1d1d1b; --muted: #6b6b66; --accent: #1f6f43; --line: #dcdcd4; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #161615; --fg: #ececE6; --muted: #a3a39b; --accent: #5cc48a; --line: #33332f; } }
+    body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 0 0 16px; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+    button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    input[type=number] { width: 80px; font: inherit; }
+    pre { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 12px; white-space: pre-wrap; word-break: break-word; min-height: 120px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>WebCodecs 벤치마크</h1>
+    <p>경기 원본 영상 파일을 선택하고 실행하세요. 영상은 이 컴퓨터 밖으로 전송되지 않습니다. 끝나면 "결과 복사"로 결과를 전달해 주세요.</p>
+    <div class="row">
+      <input type="file" id="file" accept="video/*,.mp4,.mov">
+      <label>키프레임 분석 길이 <input type="number" id="seconds" value="300" min="0"> 초 (0 = 전체)</label>
+    </div>
+    <div class="row">
+      <button id="run" disabled>실행</button>
+      <button id="copy" disabled>결과 복사</button>
+    </div>
+    <pre id="log"></pre>
+  </main>
+  <script type="module" src="./bench.ts"></script>
+</body>
+</html>

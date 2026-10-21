@@ -1,0 +1,32 @@
+{
+  "name": "futsalcut-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/prepare-assets.mjs && vite --host 0.0.0.0",
+    "build": "node scripts/prepare-assets.mjs && vite build",
+    "test": "vitest run",
+    "spike:remux": "node spikes/remux.mjs",
+    "spike:co64": "node spikes/co64.mjs",
+    "build:bench": "vite build --config vite.bench.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "prepare-assets": "node scripts/prepare-assets.mjs",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "mediabunny": "1.61.3",
+    "onnxruntime-web": "1.29.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@types/node": "22.20.5",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.6",
+    "typescript": "5.9.3",
+    "vite": "8.2.4",
+    "vite-plugin-singlefile": "2.3.3",
+    "vitest": "5.0.3"
+  }
+}

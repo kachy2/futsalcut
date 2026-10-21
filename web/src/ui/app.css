@@ -1,0 +1,40 @@
+:root {
+  --bg: #f7f7f3; --surface: #ffffff; --fg: #1c1c1a; --muted: #6a6a63; --line: #dcdcd3;
+  --accent: #1f6f43; --accent-weak: #e3f1e8; --warn: #a2560f; --danger: #b3261e;
+  --keep: #2e8b57; --prob: #d1495b;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413; --surface: #1d1d1b; --fg: #ecece6; --muted: #a2a299; --line: #34342f;
+    --accent: #5cc48a; --accent-weak: #1f3527; --warn: #e3a35a; --danger: #ef7b72;
+    --keep: #5cc48a; --prob: #ef7b72;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px; }
+h1 { font-size: 22px; margin: 0; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+p { margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-top: 16px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.spacer { flex: 1; }
+button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: 8px 14px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+input[type=range] { width: 220px; }
+select, input[type=number] { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: var(--accent-weak); }
+.bar { height: 10px; background: var(--line); border-radius: 6px; overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+.stat { font-size: 26px; font-weight: 600; }
+.error { color: var(--danger); }
+.small { font-size: 13px; }
+table { border-collapse: collapse; width: 100%; }
+td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+@media (max-width: 600px) { input[type=range] { width: 100%; } }
