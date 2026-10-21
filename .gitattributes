@@ -1,0 +1,8 @@
+# Store text with LF everywhere (the helper scripts run in Linux containers).
+* text=auto eol=lf
+
+*.onnx binary
+*.png binary
+*.jpg binary
+*.u8 binary
+*.mp4 binary

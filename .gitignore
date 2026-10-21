@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Web
+node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+
+# Media never goes into the repo (privacy / size). Small synthetic fixtures are re-allowed explicitly.
+*.mp4
+*.MP4
+*.mov
+*.MOV
+*.m4v
+*.mkv
+*.avi
+*.npz
+
+# Local Claude Code settings
+.claude/settings.local.json
+web/dist-bench/
+eval/reports/g1/*.mp4
+
+# Parity fixtures: the luma samples are regenerated in the container (tools/make_fixtures.sh)
+web/tests/fixtures/**/luma.u8
+web/public/ort/
+web/public/models/*.onnx.json
+web/public/models/ensemble_v1.json
+
+# Evaluation data derived from private recordings (kept locally, never published)
+eval/labels/
+eval/reports/raw/
+eval/reports/g1/*.jpg
+eval/reports/g1/g1_summary.json
+
+# Third-party scripts used only for local baseline runs (not redistributable) and their runners
+01_1st_proposal/
+eval/proposals/
+eval/runners/track_a.py
+eval/runners/track_a_torch.sh
+
+# Local settings for the helper scripts (see tools/env.sh) and internal drafts
+tools/local.env
+docs/marketing/
+# build output (npm run build:bench)
+tools/bench/
