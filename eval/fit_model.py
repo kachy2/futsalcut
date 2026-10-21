@@ -1,7 +1,7 @@
 """Fit the shipped ensemble model (light + full) from labeled videos using the product feature module,
 report out-of-fold metrics at the default operating point, and write models/ensemble_v1.json.
 
-python eval/fit_model.py --video-set eval/labels/<stem>  [--video-set ...] --out python/src/futsalcut/models/ensemble_v1.json
+python eval/fit_model.py --stem <stem> [--stem ...] --out python/src/futsalcut/models/ensemble_v1.json
 Each video set needs: /data/cache/<stem>.luma640x360.u8, eval/labels/<stem>.{roi,labels}.json, eval/reports/raw/dfine_<stem>.json
 """
 from __future__ import annotations
@@ -29,7 +29,9 @@ FULL = LIGHT + ["dfine_count"]
 DETECTOR_STRIDE = 12      # perspective calibration: detector on every 12th sample
 DET_MIN_SCORE = 0.4
 THRESHOLD = 0.3
-POST = PostParams(min_len=3.0)
+# Product defaults written into the model. The 5 s lead-in keeps the build-up before each scene (a 2 s pre-roll
+# started right at the action); on video_1 it adds 3 s per scene (78 s -> 90 s, same 4 scenes).
+POST = PostParams(min_len=3.0, pad_before=5.0)
 CASCADE_LO, CASCADE_HI = 0.05, 0.95
 
 

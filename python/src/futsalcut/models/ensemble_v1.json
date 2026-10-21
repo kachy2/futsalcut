@@ -1,6 +1,6 @@
 {
  "version": 1,
- "created": "2026-10-20",
+ "created": "2026-10-21",
  "trained_on": [
   "video_1"
  ],
@@ -11,7 +11,7 @@
   "smooth_need": 2,
   "merge_gap": 5.0,
   "min_len": 3.0,
-  "pad_before": 2.0,
+  "pad_before": 5.0,
   "pad_after": 2.0
  },
  "detector": {
@@ -47,11 +47,11 @@
     ],
     "edit": {
      "prf_band": {
-      "precision": 0.8095,
+      "precision": 0.7969,
       "recall": 0.9808,
-      "f1": 0.887,
+      "f1": 0.8793,
       "tp": 51,
-      "fp": 12,
+      "fp": 13,
       "fn": 1
      },
      "event_recall": 0.875,
@@ -61,9 +61,9 @@
      "false_scene_rate": 0.2,
      "scenes": 5,
      "scenes_per_episode": 0.625,
-     "median_start_err_s": 2.03,
+     "median_start_err_s": 5.03,
      "median_end_err_s": 3.0,
-     "kept_ratio": 0.1162,
+     "kept_ratio": 0.1373,
      "gt_ratio": 0.0737
     }
    }
@@ -84,11 +84,11 @@
     ],
     "edit": {
      "prf_band": {
-      "precision": 0.9444,
+      "precision": 0.9808,
       "recall": 0.9808,
-      "f1": 0.9623,
+      "f1": 0.9808,
       "tp": 51,
-      "fp": 3,
+      "fp": 1,
       "fn": 1
      },
      "event_recall": 0.875,
@@ -98,9 +98,9 @@
      "false_scene_rate": 0.0,
      "scenes": 4,
      "scenes_per_episode": 0.5,
-     "median_start_err_s": 2.0,
+     "median_start_err_s": 5.0,
      "median_end_err_s": 3.0,
-     "kept_ratio": 0.1064,
+     "kept_ratio": 0.1232,
      "gt_ratio": 0.0737
     }
    }
@@ -121,11 +121,11 @@
     ],
     "edit": {
      "prf_band": {
-      "precision": 0.9444,
+      "precision": 0.9808,
       "recall": 0.9808,
-      "f1": 0.9623,
+      "f1": 0.9808,
       "tp": 51,
-      "fp": 3,
+      "fp": 1,
       "fn": 1
      },
      "event_recall": 0.875,
@@ -135,9 +135,9 @@
      "false_scene_rate": 0.0,
      "scenes": 4,
      "scenes_per_episode": 0.5,
-     "median_start_err_s": 2.0,
+     "median_start_err_s": 5.0,
      "median_end_err_s": 3.0,
-     "kept_ratio": 0.1064,
+     "kept_ratio": 0.1232,
      "gt_ratio": 0.0737
     },
     "detector_share": 0.0812

@@ -15,7 +15,12 @@
     get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
-  let lang = $state<Lang>((store.get('lang') as Lang) ?? (navigator.language.startsWith('ko') ? 'ko' : 'en'));
+  // English unless the link says ?lang=ko (or en) or the visitor picked a language before
+  const isLang = (v: string | null): v is Lang => v === 'ko' || v === 'en';
+  const urlLang = new URLSearchParams(location.search).get('lang');
+  if (isLang(urlLang)) store.set('lang', urlLang);
+  const savedLang = store.get('lang');
+  let lang = $state<Lang>(isLang(urlLang) ? urlLang : isLang(savedLang) ? savedLang : 'en');
   const t = $derived(strings[lang]);
   // WebCodecs (and the save dialog) exist only in secure contexts: https or localhost
   const envError = $derived(typeof VideoDecoder !== 'undefined' ? '' : isSecureContext ? t.errNoWebCodecs : t.errInsecure);
@@ -289,8 +294,8 @@
             </select>
           </label>
           <label>{t.minScene} <input type="number" step="1" min="1" bind:value={post.minLen} style="width:60px" /></label>
-          <label>{t.padBefore} <input type="number" step="0.5" min="0" bind:value={post.padBefore} style="width:60px" /></label>
-          <label>{t.padAfter} <input type="number" step="0.5" min="0" bind:value={post.padAfter} style="width:60px" /></label>
+          <label title={t.padBeforeHint}>{t.padBefore} <input type="number" step="1" min="0" max="30" bind:value={post.padBefore} style="width:60px" /></label>
+          <label>{t.padAfter} <input type="number" step="1" min="0" max="30" bind:value={post.padAfter} style="width:60px" /></label>
           <label>{t.mergeGap} <input type="number" step="1" min="0" bind:value={post.mergeGap} style="width:60px" /></label>
           <label><input type="checkbox" bind:checked={showLanes} /> {t.lanes}</label>
         </div>

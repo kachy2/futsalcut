@@ -1,6 +1,6 @@
 # FutsalCut — keep only the play from static-camera futsal/soccer recordings
 
-[한국어](README.ko.md) · **Web app: https://kachy2.github.io/futsalcut/**
+[한국어](README.ko.md) · **Web app: https://kachy2.github.io/futsalcut/** (Korean UI: `?lang=ko`)
 
 A free, open-source tool for phone-on-a-tripod futsal/soccer recordings (1–2 h, 4K): it keeps only the moments
 with **2+ players in the camera-side zone** and joins them into one MP4 **in original quality and with audio,
@@ -10,7 +10,7 @@ without re-encoding**.
 - **No upload** — your video never leaves the device; analysis and saving happen in the browser
 - **Fast** — analyzes keyframes only (≈1 per second) and copies compressed packets, so a 2-hour 4K game takes minutes
 - **Adjustable** — auto (recommended) / sensitivity / target length, a drawn zone, and advanced options
-  (algorithm choice, side-by-side comparison, quick calibration)
+  (lead-in before each scene, algorithm choice, side-by-side comparison, quick calibration)
 - **Split recordings** — files split every 4 GB (e.g. Galaxy phones) are processed as one game
 
 ## How to use
@@ -25,7 +25,8 @@ without re-encoding**.
    perspective-corrected "person equivalents" and counts.
 3. A calibrated ensemble of scorers gives each moment a probability; a person detector (D-FINE-N, Apache-2.0)
    is used only for uncertain moments.
-4. Merge short gaps, add pre/post-roll, snap to keyframes, and copy the compressed packets into the output.
+4. Merge short gaps, add a lead-in before each scene (5 s by default, so you see how the attack developed) and a
+   2 s tail, snap to keyframes, and copy the compressed packets into the output.
 
 Evaluation: [docs/g1_report.md](docs/g1_report.md) · Algorithm contract: [docs/algorithms.md](docs/algorithms.md)
 

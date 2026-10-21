@@ -30,6 +30,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stem", required=True)
     ap.add_argument("--model", default="python/src/futsalcut/models/ensemble_v1.json")
+    ap.add_argument("--pad-before", type=float, default=None, help="override the model's lead-in (s)")
+    ap.add_argument("--pad-after", type=float, default=None, help="override the model's tail (s)")
     args = ap.parse_args()
     model = json.load(open(args.model))
     cache, meta = load_cache(f"/data/cache/{args.stem}.luma640x360.u8")
@@ -56,7 +58,8 @@ def main() -> int:
         sub = {k: np.asarray(v)[unsure] for k, v in scores.items()} | {"dfine_count": np.array([det(i) for i in unsure])}
         prob[unsure] = load(model, "full").prob(sub)
     t = np.asarray(meta["t"], float)
-    post = PostParams(**model["post"])
+    post = PostParams(**(model["post"] | {k: v for k, v in (("pad_before", args.pad_before),
+                                                              ("pad_after", args.pad_after)) if v is not None}))
     iv = select(prob, t, model["threshold"], post)
     print(json.dumps({"perspective": [round(persp.a, 4), round(persp.c, 2), persp.source], "unsure": len(unsure),
                       "intervals": [[round(a, 3), round(b, 3)] for a, b in iv], "kept_s": round(kept_seconds(iv), 2)}))
