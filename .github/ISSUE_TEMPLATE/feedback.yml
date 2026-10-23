@@ -1,0 +1,36 @@
+name: Result feedback
+description: Tell us how well the kept scenes matched what you wanted
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Your feedback decides what we improve next. Please **do not attach your video or screenshots that show identifiable people**.
+  - type: dropdown
+    id: result
+    attributes:
+      label: How was the result?
+      options:
+        - Great, I would use it as is
+        - Good, but it missed some action
+        - Good, but it kept too much dead time
+        - Not useful
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What did it miss or wrongly keep? Which settings did you use (sensitivity, zone, lead-in)?
+  - type: input
+    id: recording
+    attributes:
+      label: Recording
+      description: Camera or phone, codec, resolution, sport, indoor or outdoor
+      placeholder: Galaxy S24, H.264, 4K, futsal indoor
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics (optional)
+      description: In the app open "Diagnostics", press "Copy", and paste it here.
+      render: json
