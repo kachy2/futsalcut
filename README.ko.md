@@ -26,6 +26,12 @@
 
 평가 방법과 결과는 [docs/g1_report.md](docs/g1_report.md), 알고리즘 명세는 [docs/algorithms.md](docs/algorithms.md)를 보세요.
 
+## 현재 상태
+초기 버전입니다. 삼각대에 고정한 Android 폰으로 찍은 **영상 1개**(12분, 4K H.264)로만 평가했습니다.
+3초 이상 에피소드 7개를 모두 남겼고 초 단위 F1은 약 0.9입니다([보고서](docs/g1_report.md)).
+다른 카메라·각도, HEVC(아이폰), 1~2시간 전체 경기는 아직 검증 중이니 사용해 보시고
+[결과를 알려 주세요](https://github.com/kachy2/futsalcut/issues/new/choose). 앱의 진단 정보면 충분하고 영상은 필요 없습니다.
+
 ## 지원 환경
 | 환경 | 상태 |
 |---|---|

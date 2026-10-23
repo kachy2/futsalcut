@@ -30,6 +30,12 @@ without re-encoding**.
 
 Evaluation: [docs/g1_report.md](docs/g1_report.md) · Algorithm contract: [docs/algorithms.md](docs/algorithms.md)
 
+## Status
+Early release. It has been evaluated on **one** 12-minute 4K H.264 futsal recording from a tripod-mounted Android phone:
+all 7 episodes of 3 s or longer were kept, with about 0.9 F1 per second of footage ([report](docs/g1_report.md)).
+Other cameras and angles, HEVC (iPhone) and full 1–2 hour games are still being validated, so please
+[tell us how it went](https://github.com/kachy2/futsalcut/issues/new/choose) (the app's diagnostics are enough; no video needed).
+
 ## Browser support
 | Environment | Status |
 |---|---|
