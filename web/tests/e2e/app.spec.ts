@@ -22,7 +22,7 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
       return root.getFileHandle('e2e_output.mp4', { create: true });
     };
   });
-  await page.goto('/');
+  await page.goto(process.env.APP_URL ? '' : '/'); // '' = the base URL itself (keeps a /<repo>/ path)
   await page.setInputFiles('input[type=file]', VIDEO);
   await page.getByRole('button', { name: /다음|Next/ }).click();
   await expect(page.locator('canvas')).toBeVisible({ timeout: 120_000 });
