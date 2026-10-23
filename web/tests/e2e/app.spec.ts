@@ -43,6 +43,8 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
     formats: diag.frameFormats, exact: diag.exactPath, fallback: diag.fallbackPath, detector: diag.detectorBackend,
     detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, perspective: diag.perspective }));
   expect(diag.samples).toBeGreaterThan(100);
+  expect(diag.env.cores).toBeGreaterThan(0); // environment block for reading speed numbers
+  expect(diag.env.userAgent).toContain('Chrome');
   expect(diag.exactPath).toBe(diag.samples);
   const stat = (await page.locator('.stat').textContent())!.trim(); // m:ss of kept duration
   const [mm, ss] = stat.split(':').map(Number);

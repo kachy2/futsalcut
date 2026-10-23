@@ -57,6 +57,20 @@
   let exportDone = $state<{ bytes: number; durationS: number; wallS: number } | null>(null);
   let copied = $state(false);
   let probe = $state<string>('');
+  // what the browser runs on (helps to read the speed numbers); no personal data
+  let env = $state<Record<string, unknown>>({
+    userAgent: navigator.userAgent, cores: navigator.hardwareConcurrency,
+    memoryGB: (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? null,
+    webgpu: 'gpu' in navigator, secureContext: isSecureContext, touch: navigator.maxTouchPoints > 0,
+  });
+  (async () => {
+    try {
+      const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ info?: Record<string, string> } | null> } }).gpu;
+      const info = (await gpu?.requestAdapter())?.info;
+      if (info) env = { ...env, gpu: { vendor: info.vendor, architecture: info.architecture, description: info.description } };
+    } catch { /* no WebGPU adapter */ }
+  })();
+  const diagText = () => JSON.stringify({ env, ...result!.diagnostics, files: result!.files }, null, 1);
 
   function runProbe() {
     probe = '…';
@@ -328,9 +342,9 @@
 
     <details class="card">
       <summary>{t.diagnostics}</summary>
-      <pre>{JSON.stringify({ ...result.diagnostics, files: result.files }, null, 1)}</pre>
+      <pre>{diagText()}</pre>
       <div class="row">
-        <button onclick={async () => { await navigator.clipboard.writeText(JSON.stringify({ ...result!.diagnostics, files: result!.files }, null, 1)); copied = true; }}>
+        <button onclick={async () => { await navigator.clipboard.writeText(diagText()); copied = true; }}>
           {copied ? t.copied : t.copy}</button>
         <button id="probe" onclick={runProbe}>detector test</button>
       </div>
