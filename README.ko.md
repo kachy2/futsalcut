@@ -1,6 +1,6 @@
 # 풋살컷 (FutsalCut) — 고정 카메라 풋살·축구 영상에서 플레이 장면만 자동으로
 
-[English](README.md) · **웹앱: https://kachy2.github.io/futsalcut/?lang=ko**
+[English](README.md) · **웹앱: https://kachy2.github.io/futsalcut/ko/**
 
 삼각대에 폰을 세워 찍은 풋살·축구 영상(1~2시간, 4K)에서 **카메라 쪽 구역에 선수 2명 이상이 있는 장면만** 골라
 **원본 화질·음성 그대로(재인코딩 없이)** 하나의 MP4로 합쳐 주는 무료 오픈소스 도구입니다.

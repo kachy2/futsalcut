@@ -1,6 +1,6 @@
 # FutsalCut — keep only the play from static-camera futsal/soccer recordings
 
-[한국어](README.ko.md) · **Web app: https://kachy2.github.io/futsalcut/** (Korean UI: `?lang=ko`)
+[한국어](README.ko.md) · **Web app: https://kachy2.github.io/futsalcut/** (Korean page: [/ko/](https://kachy2.github.io/futsalcut/ko/))
 
 A free, open-source tool for phone-on-a-tripod futsal/soccer recordings (1–2 h, 4K): it keeps only the moments
 with **2+ players in the camera-side zone** and joins them into one MP4 **in original quality and with audio,

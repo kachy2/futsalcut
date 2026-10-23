@@ -3,7 +3,13 @@
   <url>
     <loc>https://kachy2.github.io/futsalcut/</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://kachy2.github.io/futsalcut/"/>
-    <xhtml:link rel="alternate" hreflang="ko" href="https://kachy2.github.io/futsalcut/?lang=ko"/>
+    <xhtml:link rel="alternate" hreflang="ko" href="https://kachy2.github.io/futsalcut/ko/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://kachy2.github.io/futsalcut/"/>
+  </url>
+  <url>
+    <loc>https://kachy2.github.io/futsalcut/ko/</loc>
+    <xhtml:link rel="alternate" hreflang="ko" href="https://kachy2.github.io/futsalcut/ko/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://kachy2.github.io/futsalcut/"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://kachy2.github.io/futsalcut/"/>
   </url>
 </urlset>

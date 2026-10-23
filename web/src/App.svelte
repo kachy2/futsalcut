@@ -16,12 +16,13 @@
     get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
     set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
   };
-  // English unless the link says ?lang=ko (or en) or the visitor picked a language before
+  // English unless the link says ?lang=ko (or en), the page is the static /ko/ one, or the visitor picked a language before
   const isLang = (v: string | null): v is Lang => v === 'ko' || v === 'en';
   const urlLang = new URLSearchParams(location.search).get('lang');
+  const pageLang = document.documentElement.dataset.defaultLang ?? null;
   if (isLang(urlLang)) store.set('lang', urlLang);
   const savedLang = store.get('lang');
-  let lang = $state<Lang>(isLang(urlLang) ? urlLang : isLang(savedLang) ? savedLang : 'en');
+  let lang = $state<Lang>(isLang(urlLang) ? urlLang : isLang(pageLang) ? pageLang : isLang(savedLang) ? savedLang : 'en');
   const t = $derived(strings[lang]);
   // WebCodecs (and the save dialog) exist only in secure contexts: https or localhost
   const envError = $derived(typeof VideoDecoder !== 'undefined' ? '' : isSecureContext ? t.errNoWebCodecs : t.errInsecure);
