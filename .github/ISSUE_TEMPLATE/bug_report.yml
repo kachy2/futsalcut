@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for helping! Please **do not attach your video or screenshots that show identifiable people**.
-        The diagnostics from the app are enough (they contain no video content).
+        The diagnostics from the app are enough (they contain no video content, but they list file names: edit them if they reveal personal information).
   - type: textarea
     id: what
     attributes:

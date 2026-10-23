@@ -6,6 +6,7 @@ body:
     attributes:
       value: |
         Your feedback decides what we improve next. Please **do not attach your video or screenshots that show identifiable people**.
+        Diagnostics list the file names: edit them if they reveal personal information.
   - type: dropdown
     id: result
     attributes:
