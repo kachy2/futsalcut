@@ -27,6 +27,27 @@ const ko = {
   errInsecure: '보안 연결(https)이 아니어서 브라우저가 영상 처리 기능을 막았습니다. https 주소로 열어 주세요. (LAN 시험 서버라면 Chrome에서 chrome://flags/#unsafely-treat-insecure-origin-as-secure 에 이 주소를 추가하고 Chrome을 다시 시작하세요.)',
   errNoWebCodecs: '이 브라우저는 영상 처리 기능(WebCodecs)을 지원하지 않습니다. PC용 Chrome 또는 Edge 최신 버전으로 열어 주세요.',
   startOver: '새 영상', lang: 'English',
+  guideTitle: '사용 방법',
+  guideSteps: [
+    '경기 영상 파일을 선택하세요. 카메라가 여러 파일로 나눠 저장했다면 모두 함께 선택합니다.',
+    '첫 화면 위에 "선수 2명 이상이 들어오면 남길 구역"을 그리세요. 보통 카메라와 가까운 쪽 절반입니다.',
+    '타임라인에서 남길 장면을 확인하고, 필요하면 감도나 목표 길이를 조절한 뒤 MP4 하나로 저장하세요.',
+  ],
+  tipsTitle: '촬영 팁',
+  tips: [
+    '삼각대에 고정하고, 경기 중에는 카메라를 움직이거나 확대·축소하지 마세요.',
+    '가능한 한 높은 곳(측면이나 모서리)에 두어, 보고 싶은 쪽 절반이 전부 화면에 들어오게 하세요.',
+    '지금까지 Android 폰으로 찍은 4K H.264 영상으로 시험했습니다. 다른 카메라와 HEVC도 동작해야 하지만 아직 확인하지 못했습니다.',
+  ],
+  faqTitle: '자주 묻는 질문',
+  faq: [
+    { q: '내 영상이 업로드되나요?', a: '아니요. 분석과 저장은 모두 브라우저 안에서 이루어집니다. 이 페이지는 앱과 15MB짜리 사람 검출 모델만 내려받고, 쿠키나 분석 도구를 쓰지 않습니다.' },
+    { q: '화질이 떨어지나요?', a: '아니요. 재인코딩 없이 원본 영상·음성 데이터를 그대로 복사해 이어 붙이므로 화질이 같습니다. 컷은 키프레임(약 1초 간격)에 맞춰집니다.' },
+    { q: '어떤 브라우저에서 되나요?', a: 'PC의 Chrome 또는 Edge를 권장합니다. H.264는 어디서나 되고, HEVC(아이폰)는 GPU와 브라우저에 따라 다릅니다. Safari와 Firefox는 아직 큰 파일을 바로 저장하지 못합니다.' },
+    { q: '얼마나 걸리나요?', a: '키프레임만 분석하므로 긴 경기도 보통 몇 분이면 끝나며 컴퓨터 성능에 따라 다릅니다. 처리 중에는 탭을 열어 두세요.' },
+    { q: '다른 종목에도 쓸 수 있나요?', a: '고정 카메라로 찍은 풋살·축구만 검증했습니다. 다른 고정 카메라 종목도 구역을 그리면 될 수 있지만 결과는 확인되지 않았습니다.' },
+  ],
+  feedbackLink: '문제 신고·의견 보내기',
   sceneList: '장면 목록', noScenes: '남길 장면이 없습니다. 감도를 높이거나 구역을 넓혀 보세요.',
 };
 
@@ -57,6 +78,27 @@ const en: typeof ko = {
   errInsecure: 'This page is not on a secure (https) connection, so the browser blocks video processing. Open the https address. (For a LAN test server, add this address to chrome://flags/#unsafely-treat-insecure-origin-as-secure in Chrome and relaunch Chrome.)',
   errNoWebCodecs: 'This browser does not support video processing (WebCodecs). Open the page in the latest Chrome or Edge on a PC.',
   startOver: 'New video', lang: '한국어',
+  guideTitle: 'How it works',
+  guideSteps: [
+    'Choose your game recording. If the camera split it into several files, select them all together.',
+    'Draw the zone on the first frame where 2 or more players mean "keep", usually the half of the pitch closest to the camera.',
+    'Check the scenes on the timeline, adjust the sensitivity or a target length if you like, then save one MP4.',
+  ],
+  tipsTitle: 'Filming tips',
+  tips: [
+    'Use a tripod, and do not move or zoom the camera during the game.',
+    'Place the camera as high as you can at the side or a corner, so the half you care about is fully in view.',
+    'Tested so far with 4K H.264 recordings from an Android phone. Other cameras and HEVC should work but are not verified yet.',
+  ],
+  faqTitle: 'Questions',
+  faq: [
+    { q: 'Is my video uploaded?', a: 'No. Analysis and saving happen in your browser. The page only downloads the app and a 15 MB person-detection model, and it uses no cookies or analytics.' },
+    { q: 'Is the quality reduced?', a: 'No. The original compressed video and audio are copied without re-encoding, so the picture is identical. Cuts snap to keyframes (about one per second).' },
+    { q: 'Which browsers work?', a: 'Chrome or Edge on a PC are recommended. H.264 works everywhere; HEVC (iPhone) depends on your GPU and browser. Safari and Firefox cannot save large files directly yet.' },
+    { q: 'How long does it take?', a: 'Only keyframes are analyzed, so a long game usually takes a few minutes, depending on your computer. Keep the tab open while it runs.' },
+    { q: 'Does it work for other sports?', a: 'Only fixed-camera futsal and soccer have been evaluated. Other fixed-camera sports may work if you draw the zone, but the results are not verified.' },
+  ],
+  feedbackLink: 'Report a problem or send feedback',
   sceneList: 'Scenes', noScenes: 'No scenes kept. Increase the sensitivity or enlarge the zone.',
 };
 

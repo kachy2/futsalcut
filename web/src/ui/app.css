@@ -36,5 +36,10 @@ select, input[type=number] { font: inherit; padding: 4px 6px; border-radius: 6px
 .small { font-size: 13px; }
 table { border-collapse: collapse; width: 100%; }
 td, th { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
+a { color: var(--accent); }
+.guide ol, .guide ul { margin: 0 0 10px; padding-left: 20px; }
+.guide details { margin: 8px 0; }
+.guide summary { cursor: pointer; font-weight: 600; }
+.footer { margin-top: 24px; text-align: center; }
 pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; }
 @media (max-width: 600px) { input[type=range] { width: 100%; } }

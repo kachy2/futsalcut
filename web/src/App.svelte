@@ -6,6 +6,7 @@
   import { keptSeconds, select, thresholdForBudget, type Interval, type PostParams } from './core/select';
   import { toFileSegments, type AnalysisResult, type SessionFile, type WorkerMessage } from './core/session';
   import FilePicker from './ui/FilePicker.svelte';
+  import Guide from './ui/Guide.svelte';
   import QuickCalibration from './ui/QuickCalibration.svelte';
   import RoiEditor from './ui/RoiEditor.svelte';
   import Timeline from './ui/Timeline.svelte';
@@ -231,6 +232,7 @@
       <div class="row" style="margin-top:12px"><span class="spacer"></span>
         <button class="primary" disabled={!files.length || !!envError} onclick={toStep2}>{t.next}</button></div>
     </div>
+    <Guide {t} />
   {:else if step === 2}
     <div class="card">
       <h2>{t.step2}</h2>
@@ -334,4 +336,9 @@
       {#if probe}<pre id="probe-result">{probe}</pre>{/if}
     </details>
   {/if}
+  <p class="small muted footer">
+    FutsalCut · MIT ·
+    <a href="https://github.com/kachy2/futsalcut" target="_blank" rel="noopener">GitHub</a> ·
+    <a href="https://github.com/kachy2/futsalcut/issues/new/choose" target="_blank" rel="noopener">{t.feedbackLink}</a>
+  </p>
 </main>
