@@ -10,7 +10,8 @@ const VIDEO = process.env.APP_VIDEO ?? '/data/synthetic/syn_h264_gop1.mp4';
 test('analyze and export the synthetic recording', async ({ baseURL }) => {
   test.setTimeout(30 * 60_000);
   // persistent profile: the default (incognito-like) context has a tiny storage quota for the OPFS stand-in
-  const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'futsalcut-e2e-')), { channel: 'chrome', headless: true, baseURL });
+  const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'futsalcut-e2e-')), { channel: 'chrome', headless: true, baseURL,
+    args: (process.env.CHROME_ARGS ?? '').split(' ').filter(Boolean) }); // e.g. --enable-unsafe-webgpu for a software WebGPU adapter
   const page = ctx.pages()[0] ?? (await ctx.newPage());
   const logs: string[] = [];
   page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
@@ -36,12 +37,14 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   } else {
     await page.getByRole('button', { name: /default/ }).click();
   }
+  if (process.env.DETECTOR) await page.selectOption('#detector-backend', process.env.DETECTOR); // 'webgpu' exercises the fallback
   await page.getByRole('button', { name: /분석 시작|Analyze/ }).click();
   await expect(page.getByRole('heading', { name: /결과 확인|Review/ })).toBeVisible({ timeout: 15 * 60_000 });
   const diag = JSON.parse((await page.locator('details pre').textContent()) ?? '{}');
   console.log('diagnostics', JSON.stringify({ samples: diag.samples, xRealtime: diag.xRealtime, wallS: diag.wallS,
     formats: diag.frameFormats, exact: diag.exactPath, fallback: diag.fallbackPath, detector: diag.detectorBackend,
-    detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, perspective: diag.perspective }));
+    detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, webgpuFallback: diag.detectorFallbackReason, perspective: diag.perspective }));
+  expect(diag.detectorBackend).toMatch(/wasm|webgpu/); // the detector must always end up running
   expect(diag.samples).toBeGreaterThan(100);
   expect(diag.env.cores).toBeGreaterThan(0); // environment block for reading speed numbers
   expect(diag.env.userAgent).toContain('Chrome');
@@ -75,6 +78,11 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   await page.locator('#probe').click();
   await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: 5 * 60_000 });
   console.log('detector probe:', await page.locator('#probe-result').textContent());
+  if (process.env.DETECTOR === 'webgpu') {
+    await page.locator('#probe-webgpu').click();
+    await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: 5 * 60_000 });
+    console.log('webgpu probe:', await page.locator('#probe-result').textContent());
+  }
   if (logs.some((l) => /^\[(pageerror|warning|error)\]/.test(l))) console.log(logs.join('\n'));
   await ctx.close();
 });

@@ -113,7 +113,7 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const detTimes: number[] = [];
   if (req.detector !== 'off') {
     try {
-      detector = await createDetector(req.modelUrl);
+      detector = await createDetector(req.modelUrl, req.detectorBackend ?? 'wasm');
     } catch (e) {
       console.warn('detector unavailable', e);
     }
@@ -247,7 +247,7 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const diagnostics: Diagnostics = {
     wallS, decodeS, featuresS, detectorS: (performance.now() - ds0) / 1000, samples: t.length, sessionS,
     xRealtime: sessionS / wallS, frameFormats: [...formats], exactPath: exact, fallbackPath: fallback,
-    detectorBackend: detector?.backend ?? 'off', detectorCalls: detTimes.length,
+    detectorBackend: detector?.backend ?? 'off', detectorFallbackReason: detector?.fallbackReason ?? null, detectorCalls: detTimes.length,
     detectorMsPerCall: detTimes.length ? detTimes.reduce((a, b) => a + b, 0) / detTimes.length : 0,
     perspective: persp, userAgent: navigator.userAgent,
   };

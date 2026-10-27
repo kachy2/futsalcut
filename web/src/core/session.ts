@@ -22,6 +22,8 @@ export interface AnalyzeRequest {
   files: File[];
   zone: Point[];
   detector: 'auto' | 'off';
+  /** person-detector backend: WASM is the tested default, WebGPU is experimental */
+  detectorBackend?: 'wasm' | 'webgpu';
   modelUrl: string;
   modelJson: unknown;
 }
@@ -38,6 +40,7 @@ export interface Diagnostics {
   exactPath: number;
   fallbackPath: number;
   detectorBackend: string;
+  detectorFallbackReason?: string | null;
   detectorCalls: number;
   detectorMsPerCall: number;
   perspective: Perspective;

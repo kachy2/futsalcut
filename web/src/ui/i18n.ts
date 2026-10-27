@@ -27,6 +27,7 @@ const ko = {
   errInsecure: '보안 연결(https)이 아니어서 브라우저가 영상 처리 기능을 막았습니다. https 주소로 열어 주세요. (LAN 시험 서버라면 Chrome에서 chrome://flags/#unsafely-treat-insecure-origin-as-secure 에 이 주소를 추가하고 Chrome을 다시 시작하세요.)',
   errNoWebCodecs: '이 브라우저는 영상 처리 기능(WebCodecs)을 지원하지 않습니다. PC용 Chrome 또는 Edge 최신 버전으로 열어 주세요.',
   startOver: '새 영상', lang: 'English',
+  detectorLabel: '사람 검출기', detWasm: 'WASM (안정, 기본)', detWebgpu: 'WebGPU (실험적, 일부 컴퓨터에서 오류)',
   guideTitle: '사용 방법',
   guideSteps: [
     '경기 영상 파일을 선택하세요. 카메라가 여러 파일로 나눠 저장했다면 모두 함께 선택합니다.',
@@ -78,6 +79,7 @@ const en: typeof ko = {
   errInsecure: 'This page is not on a secure (https) connection, so the browser blocks video processing. Open the https address. (For a LAN test server, add this address to chrome://flags/#unsafely-treat-insecure-origin-as-secure in Chrome and relaunch Chrome.)',
   errNoWebCodecs: 'This browser does not support video processing (WebCodecs). Open the page in the latest Chrome or Edge on a PC.',
   startOver: 'New video', lang: '한국어',
+  detectorLabel: 'Person detector', detWasm: 'WASM (stable, default)', detWebgpu: 'WebGPU (experimental, fails on some computers)',
   guideTitle: 'How it works',
   guideSteps: [
     'Choose your game recording. If the camera split it into several files, select them all together.',

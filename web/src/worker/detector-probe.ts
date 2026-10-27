@@ -5,14 +5,14 @@ import { createDetector } from './detector';
 self.onmessage = async (ev: MessageEvent) => {
   const t0 = performance.now();
   try {
-    const det = await createDetector(ev.data.modelUrl as string, ev.data.prefer ?? 'webgpu');
+    const det = await createDetector(ev.data.modelUrl as string, ev.data.prefer ?? 'wasm');
     const t1 = performance.now();
     await det.detect(new Uint8ClampedArray(640 * 640 * 4)); // warm-up
     const t2 = performance.now();
     const runs = 3;
     for (let i = 0; i < runs; i++) await det.detect(new Uint8ClampedArray(640 * 640 * 4));
     const t3 = performance.now();
-    postMessage({ ok: true, backend: det.backend, loadMs: Math.round(t1 - t0), firstMs: Math.round(t2 - t1),
+    postMessage({ ok: true, asked: ev.data.prefer ?? 'wasm', backend: det.backend, fallbackReason: det.fallbackReason, loadMs: Math.round(t1 - t0), firstMs: Math.round(t2 - t1),
       inferMs: Math.round((t3 - t2) / runs), webgpu: 'gpu' in navigator, isolated: self.crossOriginIsolated });
     await det.release();
   } catch (e) {

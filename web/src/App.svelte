@@ -47,6 +47,7 @@
   let sensitivity = $state(70);
   let targetMin = $state(10);
   let algo = $state('auto');
+  let detectorBackend = $state<'wasm' | 'webgpu'>('wasm'); // WebGPU is experimental: it fails on some GPUs
   let showAdvanced = $state(false);
   let showLanes = $state(false);
   let post = $state<PostParams | null>(null);
@@ -72,12 +73,12 @@
   })();
   const diagText = () => JSON.stringify({ env, ...result!.diagnostics, files: result!.files }, null, 1);
 
-  function runProbe() {
+  function runProbe(prefer: 'wasm' | 'webgpu' = 'wasm') {
     probe = '…';
     const w = new Worker(new URL('./worker/detector-probe.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e) => { probe = JSON.stringify(e.data); w.terminate(); };
     w.onerror = (e) => { probe = 'error: ' + e.message; w.terminate(); };
-    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href });
+    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href, prefer });
   }
 
   const base = document.baseURI;
@@ -142,7 +143,7 @@
     step = 3;
     progress = { stage: 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
     analyzer.postMessage({
-      type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto',
+      type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto', detectorBackend,
       modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
       modelJson: $state.snapshot(model),
     });
@@ -254,6 +255,12 @@
       <RoiEditor {bitmap} bind:zone {t} />
       <div class="row" style="margin-top:12px">
         <button onclick={() => (step = 1)}>{t.back}</button><span class="spacer"></span>
+        <label class="small">{t.detectorLabel}
+          <select id="detector-backend" bind:value={detectorBackend}>
+            <option value="wasm">{t.detWasm}</option>
+            <option value="webgpu">{t.detWebgpu}</option>
+          </select>
+        </label>
         <button class="primary" disabled={zone.length < 3 || !model} onclick={startAnalysis}>{t.analyze}</button>
       </div>
     </div>
@@ -346,7 +353,8 @@
       <div class="row">
         <button onclick={async () => { await navigator.clipboard.writeText(diagText()); copied = true; }}>
           {copied ? t.copied : t.copy}</button>
-        <button id="probe" onclick={runProbe}>detector test</button>
+        <button id="probe" onclick={() => runProbe('wasm')}>detector test (WASM)</button>
+        <button id="probe-webgpu" onclick={() => runProbe('webgpu')}>detector test (WebGPU)</button>
       </div>
       {#if probe}<pre id="probe-result">{probe}</pre>{/if}
     </details>
