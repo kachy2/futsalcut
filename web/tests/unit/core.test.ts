@@ -81,3 +81,23 @@ describe('ensemble (twin of python tests/test_ensemble.py)', () => {
     expect(quickCalibrate({ a, b }, answers, 'a').name).toBe('b');
   });
 });
+
+import { decodeEta, itemEta } from '../../src/core/progress';
+
+describe('progress estimates', () => {
+  it('uses the worker guess until two items are done, then the stage pace', () => {
+    expect(itemEta(0, 200, 0, 1.5)).toEqual({ perItemS: 1.5, leftS: 300 });
+    expect(itemEta(1, 200, 1.4, 1.5)?.perItemS).toBe(1.5);
+    const e = itemEta(50, 200, 100, 1.5)!;
+    expect(e.perItemS).toBe(2);
+    expect(e.leftS).toBe(300);
+    expect(itemEta(0, 10)).toBeNull();
+    expect(itemEta(10, 10, 20)?.leftS).toBe(0);
+  });
+  it('estimates the decode stage from the video time covered', () => {
+    expect(decodeEta(0, 700, 5)).toBeNull();
+    const e = decodeEta(100, 700, 50)!;
+    expect(e.rate).toBe(2);
+    expect(e.leftS).toBe(300);
+  });
+});

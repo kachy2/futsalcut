@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { APP_ROOT } from './base';
   import { calibrate, pickQuestions, quickCalibrate } from './core/ensemble';
   import type { Scores } from './core/features';
   import { postParams, type ModelFile } from './core/model';
+  import { decodeEta, itemEta } from './core/progress';
   import type { Point } from './core/roi';
   import { keptSeconds, select, thresholdForBudget, type Interval, type PostParams } from './core/select';
   import { toFileSegments, type AnalysisResult, type SessionFile, type WorkerMessage } from './core/session';
@@ -38,9 +40,19 @@
   let model = $state<ModelFile | null>(null);
   let error = $state('');
   let sessionFiles = $state<SessionFile[]>([]);
-  let progress = $state<{ stage: string; done: number; total: number; sessionDoneS: number; wallS: number } | null>(null);
+  let progress = $state<{ stage: string; done: number; total: number; sessionDoneS: number; wallS: number;
+    stageWallS?: number; itemHintS?: number; detGuessS?: number } | null>(null);
   let result = $state.raw<AnalysisResult | null>(null);
   let thumbs = $state.raw<Blob[]>([]);
+  // the worker keeps the decoded samples of the last analysis: a new zone for the same files skips decoding
+  const filesKey = $derived(files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('|'));
+  let analyzedKey = $state('');
+  let resultZone = $state.raw<Point[]>([]); // the zone the shown result was computed with
+  const hasResult = $derived(!!result && analyzedKey === filesKey);
+  const canReuse = $derived(hasResult && result?.diagnostics.sampleStore !== 'none');
+  // test overrides: ?threads=N sets the detector's WASM threads, ?gpuwait=S the seconds WebGPU may take to set up
+  const threads = Number(new URLSearchParams(location.search).get('threads')) || undefined;
+  const webgpuWaitS = Number(new URLSearchParams(location.search).get('gpuwait')) || undefined;
 
   // controls
   let mode = $state<'auto' | 'sens' | 'target'>('auto');
@@ -78,10 +90,10 @@
     const w = new Worker(new URL('./worker/detector-probe.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e) => { probe = JSON.stringify(e.data); w.terminate(); };
     w.onerror = (e) => { probe = 'error: ' + e.message; w.terminate(); };
-    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href, prefer });
+    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href, prefer, threads, webgpuWaitS });
   }
 
-  const base = document.baseURI;
+  const base = APP_ROOT;
 
   // keep the screen awake during long analysis/export (a sleeping tab gets throttled)
   let wake: { release(): Promise<void> } | null = null;
@@ -109,11 +121,17 @@
       thumbs = next;
     } else if (m.type === 'result') {
       result = m.result;
+      resultZone = $state.snapshot(zone);
+      analyzedKey = filesKey;
       progress = null;
       step = 4;
+    } else if (m.type === 'cancelled') {
+      progress = null;
+      step = 2; // back to the zone editor with the zone as it was
     } else if (m.type === 'error') {
       error = m.message;
       progress = null;
+      if (step === 3) step = 2; // not a dead end: fix the zone or the files and try again
     }
   };
   const exporter = new Worker(new URL('./worker/export.ts', import.meta.url), { type: 'module' });
@@ -137,16 +155,21 @@
   }
   function startAnalysis() {
     error = '';
-    thumbs = [];
-    result = null;
+    const reuse = canReuse;
+    if (!reuse) { thumbs = []; result = null; } // the old result and thumbnails stay until the new run replaces them
     exportDone = null;
+    qcQuestions = null;
     step = 3;
-    progress = { stage: 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
+    progress = { stage: reuse ? 'replay' : 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
     analyzer.postMessage({
       type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto', detectorBackend,
-      modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
+      reuse, ortThreads: threads, webgpuWaitS, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
       modelJson: $state.snapshot(model),
     });
+  }
+  function newVideo() {
+    step = 1; files = []; zone = []; result = null; thumbs = []; analyzedKey = '';
+    analyzer.postMessage({ type: 'drop' });
   }
 
   // probabilities available for selection
@@ -221,10 +244,30 @@
     return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
   };
   const sessionS = $derived(sessionFiles.reduce((s, f) => s + f.durationS, 0));
-  const eta = $derived.by(() => {
-    if (!progress || progress.stage !== 'decode' || !progress.sessionDoneS) return null;
-    const rate = progress.sessionDoneS / Math.max(0.1, progress.wallS);
-    return { rate, left: (sessionS - progress.sessionDoneS) / rate };
+  // person detection and the stored-frame replay count items; the decode stage is measured in video time
+  const countStage = $derived(progress?.stage === 'detector' || progress?.stage === 'replay');
+  const pct = $derived(!progress ? 0 : countStage
+    ? (100 * progress.done) / Math.max(1, progress.total) : (100 * progress.sessionDoneS) / Math.max(1, sessionS));
+  const eta = $derived.by((): { leftS: number; rate: number } | null => {
+    if (!progress) return null;
+    if (countStage) {
+      const e = itemEta(progress.done, progress.total, progress.stageWallS, progress.itemHintS);
+      return e && { leftS: e.leftS, rate: 0 };
+    }
+    return decodeEta(progress.sessionDoneS, sessionS, progress.wallS);
+  });
+  const progressText = $derived.by(() => {
+    if (!progress) return '';
+    const parts: string[] = [];
+    if (progress.stage === 'detector') parts.push(`${t.checked} ${progress.done} / ${progress.total}`, `${pct.toFixed(0)}%`);
+    else if (progress.stage === 'replay') parts.push(`${progress.done} / ${progress.total}`);
+    else {
+      parts.push(`${fmt(progress.sessionDoneS)} / ${fmt(sessionS)}`);
+      if (eta?.rate) parts.push(`${t.speed} ${eta.rate.toFixed(1)}${t.realtime}`);
+    }
+    parts.push(`${t.elapsed} ${fmt(progress.wallS)}`);
+    if (eta) parts.push(t.etaLeft(fmt(eta.leftS)));
+    return parts.join(' · ');
   });
 </script>
 
@@ -253,8 +296,11 @@
     <div class="card">
       <h2>{t.step2}</h2>
       <RoiEditor {bitmap} bind:zone {t} />
+      {#if canReuse}<p class="small muted" style="margin-top:8px">{t.reuseHint}</p>{/if}
       <div class="row" style="margin-top:12px">
-        <button onclick={() => (step = 1)}>{t.back}</button><span class="spacer"></span>
+        <button onclick={() => (step = 1)}>{t.back}</button>
+        {#if hasResult}<button id="back-to-result" onclick={() => { zone = resultZone; step = 4; }}>{t.backToResult}</button>{/if}
+        <span class="spacer"></span>
         <label class="small">{t.detectorLabel}
           <select id="detector-backend" bind:value={detectorBackend}>
             <option value="wasm">{t.detWasm}</option>
@@ -268,14 +314,11 @@
     <div class="card">
       <h2>{t.step3}</h2>
       {#if progress}
-        <p>{progress.stage === 'detector' ? t.detecting : t.decoding}</p>
-        <div class="bar"><div style="width:{progress.stage === 'detector'
-          ? (100 * progress.done) / Math.max(1, progress.total)
-          : (100 * progress.sessionDoneS) / Math.max(1, sessionS)}%"></div></div>
-        <p class="small muted" style="margin-top:6px">
-          {fmt(progress.sessionDoneS)} / {fmt(sessionS)}
-          {#if eta} · {t.speed} {eta.rate.toFixed(1)}{t.realtime} · {t.eta} {fmt(eta.left)}{/if}
-        </p>
+        <p>{progress.stage === 'detector' ? t.detecting : progress.stage === 'replay' ? t.replaying : t.decoding}
+          <span class="muted small">· {t.stageOf(progress.stage === 'detector' ? 2 : 1, 2)}</span></p>
+        <div class="bar"><div style="width:{pct}%"></div></div>
+        <p class="small muted" id="progress-text" style="margin-top:6px">{progressText}</p>
+        {#if progress.stage === 'decode'}<p class="small muted">{progress.detGuessS ? t.detNoteGuess(fmt(progress.detGuessS)) : t.detNote}</p>{/if}
         <button onclick={() => analyzer.postMessage({ type: 'cancel' })}>{t.cancel}</button>
       {/if}
     </div>
@@ -306,6 +349,7 @@
         {/if}
         <span class="spacer"></span>
         <button onclick={openQuickCal}>{t.quickCal}</button>
+        <button id="redraw" onclick={() => (step = 2)}>{t.redrawZone}</button>
         <button onclick={() => (showAdvanced = !showAdvanced)}>{t.advanced}</button>
       </div>
       {#if showAdvanced && post}
@@ -335,7 +379,7 @@
       <h2>{t.step5}</h2>
       <div class="row">
         <button class="primary" disabled={!selection.intervals.length || !!exporting} onclick={save}>{t.save}</button>
-        <button onclick={() => { step = 1; files = []; zone = []; result = null; thumbs = []; }}>{t.startOver}</button>
+        <button onclick={newVideo}>{t.startOver}</button>
       </div>
       {#if exporting}
         <p class="small" style="margin-top:8px">{t.saving} {fmt(exporting.doneS)} / {fmt(exporting.totalS)}</p>

@@ -1,51 +1,31 @@
 // End-to-end: select the synthetic recording -> default zone -> analyze -> review -> save (OPFS stand-in for
 // the save dialog) -> the written MP4's duration equals the kept duration shown in the UI.
-import { chromium, expect, test } from '@playwright/test';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-const VIDEO = process.env.APP_VIDEO ?? '/data/synthetic/syn_h264_gop1.mp4';
+import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { analyze, launch, openApp, drawZone, type Zone } from './helpers';
 
 test('analyze and export the synthetic recording', async ({ baseURL }) => {
   test.setTimeout(30 * 60_000);
-  // persistent profile: the default (incognito-like) context has a tiny storage quota for the OPFS stand-in
-  const ctx = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), 'futsalcut-e2e-')), { channel: 'chrome', headless: true, baseURL,
-    args: (process.env.CHROME_ARGS ?? '').split(' ').filter(Boolean) }); // e.g. --enable-unsafe-webgpu for a software WebGPU adapter
-  const page = ctx.pages()[0] ?? (await ctx.newPage());
-  const logs: string[] = [];
-  page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
-  page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
-  await page.addInitScript(() => {
-    // headless runs cannot click through the native save dialog: write into the origin private file system
-    (window as unknown as { showSaveFilePicker: unknown }).showSaveFilePicker = async () => {
-      const root = await navigator.storage.getDirectory();
-      return root.getFileHandle('e2e_output.mp4', { create: true });
-    };
-  });
-  await page.goto(process.env.APP_URL ? '' : '/'); // '' = the base URL itself (keeps a /<repo>/ path)
-  await page.setInputFiles('input[type=file]', VIDEO);
-  await page.getByRole('button', { name: /다음|Next/ }).click();
-  await expect(page.locator('canvas')).toBeVisible({ timeout: 120_000 });
+  const { ctx, page, logs } = await launch(baseURL);
+  await openApp(page);
   if (process.env.APP_ZONE) {
-    // draw the given polygon like a user: click each corner on the preview canvas
-    const zonePts: [number, number][] = JSON.parse(process.env.APP_ZONE);
-    const box = (await page.locator('canvas').boundingBox())!;
-    for (const [x, y] of zonePts) {
-      await page.mouse.click(box.x + Math.min(0.999, Math.max(0.001, x)) * box.width, box.y + Math.min(0.999, Math.max(0.001, y)) * box.height);
-    }
+    await drawZone(page, JSON.parse(process.env.APP_ZONE) as Zone); // the given polygon, corner by corner
   } else {
     await page.getByRole('button', { name: /default/ }).click();
   }
   if (process.env.DETECTOR) await page.selectOption('#detector-backend', process.env.DETECTOR); // 'webgpu' exercises the fallback
-  await page.getByRole('button', { name: /분석 시작|Analyze/ }).click();
-  await expect(page.getByRole('heading', { name: /결과 확인|Review/ })).toBeVisible({ timeout: 15 * 60_000 });
-  const diag = JSON.parse((await page.locator('details pre').textContent()) ?? '{}');
+  const { diag, hook: sc } = await analyze(page);
   console.log('diagnostics', JSON.stringify({ samples: diag.samples, xRealtime: diag.xRealtime, wallS: diag.wallS,
     formats: diag.frameFormats, exact: diag.exactPath, fallback: diag.fallbackPath, detector: diag.detectorBackend,
-    detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, webgpuFallback: diag.detectorFallbackReason, perspective: diag.perspective }));
+    detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, threads: diag.detectorThreads, isolated: diag.crossOriginIsolated,
+    store: diag.sampleStore, webgpuFallback: diag.detectorFallbackReason, perspective: diag.perspective }));
+  console.log('timing', JSON.stringify({ decodeS: diag.decodeS, lumaS: diag.lumaS, pass1S: diag.pass1S, thumbS: diag.thumbS,
+    strideDetectorS: diag.strideDetectorS, featuresS: diag.featuresS, detectorS: diag.detectorS, redecodeS: diag.redecodeS }));
   expect(diag.detectorBackend).toMatch(/wasm|webgpu/); // the detector must always end up running
-  expect(diag.samples).toBeGreaterThan(100);
+  expect(diag.crossOriginIsolated).toBe(true); // the service worker made the page isolated (WASM threads)
+  if (process.env.ORT_THREADS) expect(diag.detectorThreads).toBe(Number(process.env.ORT_THREADS));
+  expect(diag.sampleStore).toMatch(/file|memory/); // the decoded samples are kept for a new zone
+  expect(diag.samples).toBeGreaterThan(Number(process.env.MIN_SAMPLES ?? 100)); // MIN_SAMPLES for short excerpts
   expect(diag.env.cores).toBeGreaterThan(0); // environment block for reading speed numbers
   expect(diag.env.userAgent).toContain('Chrome');
   expect(diag.exactPath).toBe(diag.samples);
@@ -54,7 +34,6 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   const keptS = mm * 60 + ss;
   console.log('kept', stat, await page.locator('.stat + span').textContent());
   expect(keptS).toBeGreaterThan(0);
-  const sc = await page.evaluate(() => (window as unknown as { __futsalcut: { intervals: [number, number][]; detector: [number, number][] } }).__futsalcut);
   console.log('intervals', JSON.stringify(sc.intervals.map(([a, b]) => [Math.round(a), Math.round(b)])), 'detector samples', sc.detector.length);
   if (process.env.TRUTH) {
     // synthetic ground truth: per-second keep flags; report recall/precision of kept seconds

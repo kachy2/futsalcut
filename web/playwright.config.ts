@@ -9,6 +9,7 @@ export default defineConfig({
   use: {
     channel: 'chrome', // Google Chrome (H.264/AAC); Chromium builds lack proprietary codecs
     headless: true,
+    actionTimeout: 60_000, // a click on a disabled button should fail the test, not wait for the whole test timeout
     baseURL: appUrl ?? 'http://localhost:4173',
     launchOptions: { args: ['--allow-file-access-from-files'] },
   },

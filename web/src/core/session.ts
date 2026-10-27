@@ -24,6 +24,12 @@ export interface AnalyzeRequest {
   detector: 'auto' | 'off';
   /** person-detector backend: WASM is the tested default, WebGPU is experimental */
   detectorBackend?: 'wasm' | 'webgpu';
+  /** WASM threads for the detector (default: half of the cores, at most 4, only on a cross-origin isolated page) */
+  ortThreads?: number;
+  /** seconds WebGPU may take to set up before the detector falls back to WASM (default 60; a software adapter needs more) */
+  webgpuWaitS?: number;
+  /** same files as the last analysis and only the zone changed: reuse its decoded samples and detector boxes */
+  reuse?: boolean;
   modelUrl: string;
   modelJson: unknown;
 }
@@ -41,8 +47,25 @@ export interface Diagnostics {
   fallbackPath: number;
   detectorBackend: string;
   detectorFallbackReason?: string | null;
+  /** WebGPU: how far its results were from WASM on the check frame */
+  detectorGpuCheck?: string | null;
   detectorCalls: number;
   detectorMsPerCall: number;
+  /** WASM threads the detector runs with (more than 1 needs a cross-origin isolated page) */
+  detectorThreads?: number;
+  crossOriginIsolated?: boolean;
+  /** true when the decoded samples of an earlier run were reused (decodeS is then 0) */
+  reused?: boolean;
+  replayS?: number;
+  /** where the decode stage spent its time, in seconds: luma sample, pass 1, thumbnails, sparse detector calls */
+  lumaS?: number;
+  pass1S?: number;
+  thumbS?: number;
+  strideDetectorS?: number;
+  /** cascade stage: waiting for the key-frame decode of the next uncertain sample */
+  redecodeS?: number;
+  /** how the samples are kept for a new zone: file (private file system), memory or none */
+  sampleStore?: string;
   perspective: Perspective;
   userAgent: string;
 }
@@ -62,9 +85,14 @@ export interface AnalysisResult {
 
 export type WorkerMessage =
   | { type: 'files'; files: SessionFile[] }
-  | { type: 'progress'; stage: 'decode' | 'detector' | 'finalize'; done: number; total: number; sessionDoneS: number; wallS: number }
+  | { type: 'progress'; stage: 'decode' | 'replay' | 'detector' | 'finalize'; done: number; total: number; sessionDoneS: number; wallS: number;
+      /** seconds since this stage began, and an a-priori seconds-per-item guess for the first message of a stage */
+      stageWallS?: number; itemHintS?: number;
+      /** decode stage: rough seconds the person detection will take afterwards (about 30% of the samples are uncertain) */
+      detGuessS?: number }
   | { type: 'thumbs'; start: number; blobs: Blob[] }
   | { type: 'result'; result: AnalysisResult }
+  | { type: 'cancelled' }
   | { type: 'error'; message: string };
 
 export type { Pass1 };
