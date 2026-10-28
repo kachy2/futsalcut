@@ -12,7 +12,7 @@ import { polygonMask } from '../core/roi';
 import type { AnalysisResult, AnalyzeRequest, Diagnostics, SessionFile, WorkerMessage } from '../core/session';
 import { StreamingPass1 } from '../core/streaming';
 import { createDetector, type Detector } from './detector';
-import { drawRotated, frameToLuma } from './luma';
+import { drawRotated, frameToLuma, lumaClock } from './luma';
 
 const MIN_SPACING = 0.9; // seconds between taken keyframes (same rule as the Python sampler)
 const THUMB_W = 192;
@@ -259,19 +259,21 @@ interface Run {
   wall(): number;
   sessionS: number;
   detTimes: number[];
-  timing: { luma: number; pass1: number; thumb: number; strideDet: number; redecode: number; replay: number };
+  timing: { luma: number; pass1: number; thumb: number; strideDet: number; redecode: number; replay: number; prep: number; setup: number };
   getDetector(): Promise<Detector | null>;
 }
 
 /** Frame -> 640x640 RGBA -> person boxes (normalized x1, y1, x2, y2, score). */
 class BoxFinder {
   private ctx = new OffscreenCanvas(640, 640).getContext('2d', { willReadFrequently: true })!;
-  constructor(private detector: Detector, private times: number[]) {}
+  constructor(private detector: Detector, private times: number[], private timing: Run['timing']) {}
 
   async find(frame: VideoFrame, rotation: number): Promise<number[][]> {
+    const p0 = performance.now();
     drawRotated(this.ctx, frame, rotation, 640, 640);
     const px = this.ctx.getImageData(0, 0, 640, 640).data;
     const s = performance.now();
+    this.timing.prep += (s - p0) / 1000;
     const boxes = await this.detector.detect(px);
     this.times.push(performance.now() - s);
     return boxes;
@@ -282,7 +284,7 @@ class BoxFinder {
 async function decodeAll(run: Run): Promise<Pass1[]> {
   const { req, c, timing } = run;
   const detector = await run.getDetector();
-  const finder = detector ? new BoxFinder(detector, run.detTimes) : null;
+  const finder = detector ? new BoxFinder(detector, run.detTimes, timing) : null;
   const stride = run.model.detector.perspective_stride;
   const thumbCanvas = new OffscreenCanvas(THUMB_W, THUMB_H);
   const thumbCtx = thumbCanvas.getContext('2d')!;
@@ -399,6 +401,8 @@ async function replayAll(run: Run): Promise<Pass1[]> {
 
 async function analyze(req: AnalyzeRequest): Promise<void> {
   const t0 = performance.now();
+  lumaClock.copy = 0;
+  lumaClock.shrink = 0;
   const model = req.modelJson as ModelFile;
   const key = req.files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('|');
   const reuse = req.reuse !== false && !!cache?.complete && !cache.store.broken && cache.key === key;
@@ -419,22 +423,24 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
 
   const run: Run = {
     req, model, c, t0, wall: () => (performance.now() - t0) / 1000, sessionS: files.reduce((s, f) => s + f.durationS, 0), detTimes: [],
-    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0 },
+    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0, prep: 0, setup: 0 },
     async getDetector() {
       if (req.detector === 'off') return null;
-      const asked = `${req.detectorBackend ?? 'wasm'}/${req.ortThreads ?? 0}`;
+      const asked = `${req.detectorBackend ?? 'auto'}/${req.ortThreads ?? 0}`;
       if (c.detector && c.detectorAsked !== asked) {
         await c.detector.release().catch(() => undefined);
         c.detector = null;
       }
       if (!c.detector) {
+        const s0 = performance.now();
         try {
-          c.detector = await createDetector(req.modelUrl, req.detectorBackend ?? 'wasm', req.ortThreads,
-            { webgpuWaitMs: req.webgpuWaitS ? req.webgpuWaitS * 1000 : undefined });
+          c.detector = await createDetector(req.modelUrl, req.detectorBackend ?? 'auto', req.ortThreads,
+            { webgpuWaitMs: req.webgpuWaitS ? req.webgpuWaitS * 1000 : undefined, anyGpu: req.anyGpu });
           c.detectorAsked = asked;
         } catch (e) {
           console.warn('detector unavailable', e);
         }
+        run.timing.setup += (performance.now() - s0) / 1000;
       }
       return c.detector;
     },
@@ -466,7 +472,7 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
     const todo = unsure.filter((i) => !c.boxes.has(i));
     const detector = todo.length || !c.boxes.size ? await run.getDetector() : c.detector;
     if (detector && todo.length) {
-      const finder = new BoxFinder(detector, run.detTimes);
+      const finder = new BoxFinder(detector, run.detTimes, run.timing);
       const hint = (run.detTimes.length ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : c.detMs || 1500) / 1000 + KEYFRAME_REDECODE_S;
       const progress = (done: number) => post({ type: 'progress', stage: 'detector', done, total: todo.length, sessionDoneS: run.sessionS,
         wallS: run.wall(), stageWallS: (performance.now() - ds0) / 1000, itemHintS: hint });
@@ -507,11 +513,12 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const diagnostics: Diagnostics = {
     wallS, decodeS: reuse ? 0 : c.decodeS, featuresS, detectorS: (performance.now() - ds0) / 1000, samples: c.t.length, sessionS: run.sessionS,
     xRealtime: run.sessionS / wallS, frameFormats: [...c.formats], exactPath: c.exact, fallbackPath: c.fallback,
-    detectorBackend: detector?.backend ?? (c.boxes.size ? 'cached' : 'off'), detectorFallbackReason: detector?.fallbackReason ?? null, detectorGpuCheck: detector?.gpuCheck ?? null,
+    detectorBackend: detector?.backend ?? (c.boxes.size ? 'cached' : 'off'), detectorAsked: req.detectorBackend ?? 'auto', detectorFallbackReason: detector?.fallbackReason ?? null, detectorGpuCheck: detector?.gpuCheck ?? null,
     detectorCalls: run.detTimes.length, detectorThreads: detector?.threads, crossOriginIsolated: self.crossOriginIsolated,
     detectorMsPerCall: run.detTimes.length ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : 0,
     reused: reuse, replayS: run.timing.replay, lumaS: run.timing.luma, pass1S: run.timing.pass1, thumbS: run.timing.thumb,
     strideDetectorS: run.timing.strideDet, redecodeS: run.timing.redecode, sampleStore: c.store.kind,
+    detectorSetupS: run.timing.setup, lumaCopyS: reuse ? 0 : lumaClock.copy, lumaShrinkS: reuse ? 0 : lumaClock.shrink, frameToBoxesS: run.timing.prep,
     perspective: persp, userAgent: navigator.userAgent,
   };
   const result: AnalysisResult = {

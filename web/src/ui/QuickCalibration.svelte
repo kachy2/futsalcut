@@ -10,7 +10,8 @@
   const urls = $derived(questions.map((i) => (thumbs[i] ? URL.createObjectURL(thumbs[i]) : '')));
   $effect(() => () => urls.forEach((u) => u && URL.revokeObjectURL(u)));
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-  const done = $derived(questions.every((i) => answers[i] !== undefined));
+  const answered = $derived(questions.filter((i) => answers[i] !== undefined).length);
+  const done = $derived(answered === questions.length);
 </script>
 
 <div class="card">
@@ -32,5 +33,6 @@
     <button class="primary" disabled={!done}
       onclick={() => onapply(new Map(questions.map((i) => [i, answers[i]!] as [number, boolean])))}>{t.apply}</button>
     <button onclick={oncancel}>{t.cancel}</button>
+    <span class="small muted">{answered} / {questions.length}</span>
   </div>
 </div>

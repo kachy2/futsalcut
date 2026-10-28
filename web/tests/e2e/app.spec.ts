@@ -4,6 +4,9 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { analyze, launch, openApp, drawZone, type Zone } from './helpers';
 
+// PROBE_WAIT_MIN: a software WebGPU adapter needs about ten minutes for the four inferences of the self-test
+const PROBE_WAIT_MS = Number(process.env.PROBE_WAIT_MIN ?? 5) * 60_000;
+
 test('analyze and export the synthetic recording', async ({ baseURL }) => {
   test.setTimeout(30 * 60_000);
   const { ctx, page, logs } = await launch(baseURL);
@@ -17,11 +20,15 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   const { diag, hook: sc } = await analyze(page);
   console.log('diagnostics', JSON.stringify({ samples: diag.samples, xRealtime: diag.xRealtime, wallS: diag.wallS,
     formats: diag.frameFormats, exact: diag.exactPath, fallback: diag.fallbackPath, detector: diag.detectorBackend,
-    detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, threads: diag.detectorThreads, isolated: diag.crossOriginIsolated,
-    store: diag.sampleStore, webgpuFallback: diag.detectorFallbackReason, perspective: diag.perspective }));
+    asked: diag.detectorAsked, detectorCalls: diag.detectorCalls, detectorMs: diag.detectorMsPerCall, threads: diag.detectorThreads,
+    isolated: diag.crossOriginIsolated, store: diag.sampleStore, gpuCheck: diag.detectorGpuCheck, webgpuFallback: diag.detectorFallbackReason,
+    perspective: diag.perspective }));
   console.log('timing', JSON.stringify({ decodeS: diag.decodeS, lumaS: diag.lumaS, pass1S: diag.pass1S, thumbS: diag.thumbS,
-    strideDetectorS: diag.strideDetectorS, featuresS: diag.featuresS, detectorS: diag.detectorS, redecodeS: diag.redecodeS }));
+    strideDetectorS: diag.strideDetectorS, featuresS: diag.featuresS, detectorS: diag.detectorS, redecodeS: diag.redecodeS,
+    detectorSetupS: diag.detectorSetupS, lumaCopyS: diag.lumaCopyS, lumaShrinkS: diag.lumaShrinkS, frameToBoxesS: diag.frameToBoxesS }));
   expect(diag.detectorBackend).toMatch(/wasm|webgpu/); // the detector must always end up running
+  if (process.env.EXPECT_BACKEND) expect(diag.detectorBackend).toBe(process.env.EXPECT_BACKEND);
+  if (process.env.EXPECT_CHECK) expect(String(diag.detectorGpuCheck)).toMatch(new RegExp(process.env.EXPECT_CHECK));
   expect(diag.crossOriginIsolated).toBe(true); // the service worker made the page isolated (WASM threads)
   if (process.env.ORT_THREADS) expect(diag.detectorThreads).toBe(Number(process.env.ORT_THREADS));
   expect(diag.sampleStore).toMatch(/file|memory/); // the decoded samples are kept for a new zone
@@ -55,11 +62,11 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   // detector self-test from the diagnostics panel
   await page.locator('details summary').click();
   await page.locator('#probe').click();
-  await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: 5 * 60_000 });
+  await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: PROBE_WAIT_MS });
   console.log('detector probe:', await page.locator('#probe-result').textContent());
   if (process.env.DETECTOR === 'webgpu') {
     await page.locator('#probe-webgpu').click();
-    await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: 5 * 60_000 });
+    await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: PROBE_WAIT_MS });
     console.log('webgpu probe:', await page.locator('#probe-result').textContent());
   }
   if (logs.some((l) => /^\[(pageerror|warning|error)\]/.test(l))) console.log(logs.join('\n'));

@@ -1,6 +1,8 @@
 /**
- * D-FINE-N person detector (Apache-2.0) via onnxruntime-web: WASM by default, WebGPU only when asked for (experimental).
- * WebGPU is used only if it creates a session, runs a fixed test frame within the time limit and agrees with WASM on that frame;
+ * D-FINE-N person detector (Apache-2.0) via onnxruntime-web, on the graphics chip (WebGPU) or on CPU threads (WASM).
+ * 'auto' (the default) takes WebGPU where the browser offers a real GPU (not a phone, not a software adapter) and keeps whichever
+ * of GPU and CPU is faster on a fixed test frame; 'webgpu' insists on the GPU, 'wasm' never touches it.
+ * WebGPU is used only if it creates a session, runs the test frame within the time limit and agrees with WASM on that frame;
  * a backend that fails there, or later during inference, is replaced by WASM and the reason is kept.
  * Input: a frame drawn (stretched, display orientation) into a 640x640 RGB canvas — the same
  * preprocessing as the HF RTDetrImageProcessor (resize, /255, no normalization).
@@ -23,6 +25,8 @@ export interface Detector {
 export interface DetectorOptions {
   /** how long WebGPU may take to create its session and run the test frame (a software adapter needs minutes) */
   webgpuWaitMs?: number;
+  /** 'auto' also takes a software adapter (tests only: the container has no real GPU) */
+  anyGpu?: boolean;
 }
 
 const PERSON = 0;
@@ -34,6 +38,8 @@ const WEBGPU_FIX: Record<string, number[]> = { '/m/model/decoder/Concat_output_0
 /** WebGPU must match WASM on the test frame this closely (a software WebGPU adapter showed 8e-5 on logits, 1e-5 on boxes) */
 const LOGIT_TOL = 0.02;
 const BOX_TOL = 0.005;
+/** 'auto' keeps the CPU only if it is this much faster than the GPU: the GPU leaves the processor free for decoding */
+const CPU_MUST_BE_FASTER = 1.3;
 
 interface Raw { logits: Float32Array; boxes: Float32Array; nq: number; nc: number }
 
@@ -57,7 +63,19 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 
 const maxDiff = (a: Float32Array, b: Float32Array) => a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0);
 
-export async function createDetector(modelUrl: string, prefer: 'webgpu' | 'wasm' = 'wasm', threads?: number,
+/** A real GPU for 'auto': WebGPU is there, the device is not a phone (little memory, throttled) and the adapter is no software fallback. */
+async function hasRealGpu(anyAdapter = false): Promise<boolean> {
+  try {
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } }).gpu;
+    if (!gpu || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) return false;
+    const adapter = await gpu.requestAdapter();
+    return !!adapter && (anyAdapter || !(adapter.isFallbackAdapter ?? adapter.info?.isFallbackAdapter));
+  } catch {
+    return false;
+  }
+}
+
+export async function createDetector(modelUrl: string, prefer: 'auto' | 'webgpu' | 'wasm' = 'wasm', threads?: number,
   opts: DetectorOptions = {}): Promise<Detector> {
   // the runtime's .mjs and .wasm are plain files in <app>/ort/ (prepare-assets.mjs copies them); the model is in <app>/models/
   ort.env.wasm.wasmPaths = new URL('../ort/', modelUrl).href;
@@ -100,9 +118,20 @@ export async function createDetector(modelUrl: string, prefer: 'webgpu' | 'wasm'
   let fallbackReason: string | null = null;
   let gpuCheck: string | null = null;
   const describe = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 400);
-  if (prefer === 'webgpu' && 'gpu' in navigator) {
-    const gpu = { session: null as ort.InferenceSession | null };
+  const gpu = { session: null as ort.InferenceSession | null };
+  let cpu: ort.InferenceSession | null = null; // the WASM session made for the check; it is the one in use if the GPU is not
+  let useGpu = false;
+  if (prefer === 'webgpu' ? 'gpu' in navigator : prefer === 'auto' && (await hasRealGpu(opts.anyGpu))) {
     const frame = testFrame();
+    const timeOf = async (session: ort.InferenceSession) => { // best of two runs after the first (which compiles shaders / warms up)
+      let best = Infinity;
+      for (let i = 0; i < 2; i++) {
+        const s = performance.now();
+        await run(session, frame);
+        best = Math.min(best, performance.now() - s);
+      }
+      return Math.round(best);
+    };
     // some adapters only fail (or hang) when a kernel runs, so the session is not trusted before the test frame has been run
     const warmUp = (async () => {
       gpu.session = await makeSession('webgpu');
@@ -110,24 +139,32 @@ export async function createDetector(modelUrl: string, prefer: 'webgpu' | 'wasm'
     })();
     try {
       const onGpu = await withTimeout(warmUp, opts.webgpuWaitMs ?? 60_000);
-      const wasm = await makeSession('wasm');
-      const onCpu = await run(wasm, frame, true);
+      cpu = await makeSession('wasm');
+      const onCpu = await run(cpu, frame, true);
       const dl = maxDiff(onGpu.logits, onCpu.logits);
       const db = maxDiff(onGpu.boxes, onCpu.boxes);
       gpuCheck = `logits ${dl.toExponential(1)}, boxes ${db.toExponential(1)}`;
-      if (!(dl <= LOGIT_TOL && db <= BOX_TOL)) { // also catches NaN
-        await wasm.release().catch(() => undefined);
-        throw new Error(`results differ from WASM (${gpuCheck})`);
+      if (!(dl <= LOGIT_TOL && db <= BOX_TOL)) throw new Error(`results differ from WASM (${gpuCheck})`); // also catches NaN
+      useGpu = true;
+      if (prefer === 'auto') {
+        const gpuMs = await timeOf(gpu.session!);
+        const cpuMs = await timeOf(cpu);
+        gpuCheck += `; per frame: gpu ${gpuMs} ms, cpu ${cpuMs} ms (${ort.env.wasm.numThreads} threads)`;
+        useGpu = !(cpuMs * CPU_MUST_BE_FASTER < gpuMs); // the CPU threads beat this graphics chip clearly: keep the CPU
       }
-      current = gpu.session;
-      standby = wasm;
-      ep = 'webgpu';
     } catch (e) {
+      useGpu = false;
       fallbackReason = `webgpu: ${describe(e)}`;
-      void warmUp.then(() => undefined, () => undefined).then(() => gpu.session?.release()).catch(() => undefined); // a session still being created
     }
+    if (!useGpu) void warmUp.then(() => undefined, () => undefined).then(() => gpu.session?.release()).catch(() => undefined); // may still be being created
   }
-  if (!current) current = await makeSession('wasm');
+  if (useGpu) {
+    current = gpu.session;
+    standby = cpu;
+    ep = 'webgpu';
+  } else {
+    current = cpu ?? (await makeSession('wasm'));
+  }
 
   return {
     get backend() { return fallbackReason ? 'wasm (webgpu failed)' : ep; },

@@ -8,7 +8,8 @@ without re-encoding**.
 
 - **No install** — runs in the browser (Chrome/Edge on a PC recommended)
 - **No upload** — your video never leaves the device; analysis and saving happen in the browser
-- **Fast** — analyzes keyframes only (≈1 per second) and copies compressed packets, so a 2-hour 4K game takes minutes
+- **No re-encoding** — analyzes keyframes only (≈1 per second) and copies compressed packets; in a first measurement on a
+  laptop with integrated graphics, 12 minutes of 4K video took about 4.5 minutes to analyze (roughly a third of its length)
 - **Adjustable** — auto (recommended) / sensitivity / target length, a drawn zone, and advanced options
   (lead-in before each scene, algorithm choice, side-by-side comparison, quick calibration)
 - **Split recordings** — files split every 4 GB (e.g. Galaxy phones) are processed as one game

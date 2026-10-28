@@ -78,7 +78,9 @@ describe('ensemble (twin of python tests/test_ensemble.py)', () => {
     const q = pickQuestions({ a, b }, t, 5, 20);
     expect(q.length).toBe(5);
     const answers = new Map(q.map((i) => [i, t[i] >= 150] as [number, boolean]));
-    expect(quickCalibrate({ a, b }, answers, 'a').name).toBe('b');
+    const r = quickCalibrate({ a, b }, answers, 'a');
+    expect(r.name).toBe('b');
+    expect([r.agree, r.total]).toEqual([5, 5]);
   });
 });
 

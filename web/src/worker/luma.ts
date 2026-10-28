@@ -11,6 +11,9 @@ const Y_16BIT = new Set(['I420P10', 'I420AP10', 'I422P10', 'I422AP10', 'I444P10'
 
 let scratch = new Uint8Array(0);
 
+/** Seconds spent so far in the two parts of the exact path: copying the frame out of the decoder, shrinking and rotating the luma (diagnostics). */
+export const lumaClock = { copy: 0, shrink: 0 };
+
 export interface LumaSample { data: Uint8Array; w: number; h: number; path: 'exact' | 'fallback'; format: string }
 
 export async function frameToLuma(frame: VideoFrame, rotation: number, longSide = 640): Promise<LumaSample> {
@@ -20,10 +23,14 @@ export async function frameToLuma(frame: VideoFrame, rotation: number, longSide 
   const fmt = frame.format ?? 'null';
   let small: Uint8Array;
   let path: 'exact' | 'fallback' = 'exact';
+  let shrinkFrom = performance.now(); // restarted after the copy
   if (Y_8BIT.has(fmt) || Y_16BIT.has(fmt)) {
     const size = frame.allocationSize();
     if (scratch.length < size) scratch = new Uint8Array(size);
+    const c0 = performance.now();
     const layout = await frame.copyTo(scratch);
+    shrinkFrom = performance.now();
+    lumaClock.copy += (shrinkFrom - c0) / 1000;
     const { offset, stride } = layout[0];
     if (Y_8BIT.has(fmt)) {
       small = boxDownscale(scratch.subarray(offset), vw, vh, stride, rw, rh);
@@ -49,6 +56,7 @@ export async function frameToLuma(frame: VideoFrame, rotation: number, longSide 
     }
   }
   const r = rotateCw(small, rw, rh, rotation);
+  lumaClock.shrink += (performance.now() - shrinkFrom) / 1000;
   return { data: r.data, w: r.w, h: r.h, path, format: fmt };
 }
 

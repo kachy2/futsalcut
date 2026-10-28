@@ -6,7 +6,7 @@ self.onmessage = async (ev: MessageEvent) => {
   const t0 = performance.now();
   try {
     const det = await createDetector(ev.data.modelUrl as string, ev.data.prefer ?? 'wasm', ev.data.threads,
-      { webgpuWaitMs: ev.data.webgpuWaitS ? ev.data.webgpuWaitS * 1000 : undefined });
+      { webgpuWaitMs: ev.data.webgpuWaitS ? ev.data.webgpuWaitS * 1000 : undefined, anyGpu: ev.data.anyGpu });
     const t1 = performance.now();
     await det.detect(new Uint8ClampedArray(640 * 640 * 4)); // warm-up
     const t2 = performance.now();

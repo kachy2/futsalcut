@@ -9,15 +9,15 @@ FutsalCut has been evaluated on one recording so far. Results from other cameras
 1. Open the app in Chrome or Edge ([English](https://kachy2.github.io/futsalcut/) · [한국어](https://kachy2.github.io/futsalcut/ko/)). 앱을 열고 영상을 선택합니다.
 2. Draw the zone, press **Analyze**, note the speed shown while it runs (e.g. "12.3x realtime").
    구역을 그리고 **분석 시작**을 누른 뒤, 진행 중 표시되는 속도(배속)를 메모합니다.
-   The first visit reloads the page once (it switches on multi-threading); that is expected. If you drew the zone wrongly, use **Redraw the zone** on the result page: the video is not read again.
-   처음 방문하면 페이지가 한 번 새로고침됩니다(멀티스레드를 켜는 과정이라 정상입니다). 구역을 잘못 그렸다면 결과 화면의 **구역 다시 그리기**를 누르세요. 영상을 처음부터 다시 읽지 않습니다.
+   The first visit, and every forced refresh (Ctrl+F5), reloads the page once more by itself (it switches on multi-threading); that is expected. If you drew the zone wrongly, use **Redraw the zone** on the result page: the video is not read again.
+   처음 방문하거나 강제 새로고침(Ctrl+F5)을 하면 페이지가 한 번 더 저절로 새로고침됩니다(멀티스레드를 켜는 과정이라 정상입니다). 구역을 잘못 그렸다면 결과 화면의 **구역 다시 그리기**를 누르세요. 영상을 처음부터 다시 읽지 않습니다.
 3. Check the scenes and save the MP4. Play it: is the audio in sync, do the scenes start where you expect?
    장면을 확인하고 MP4로 저장한 뒤 재생해 봅니다(음성 싱크, 장면 시작 위치).
 4. Open **Diagnostics**, press **Copy**, and paste it into a [new issue](https://github.com/kachy2/futsalcut/issues/new/choose).
    **진단 정보**를 펼쳐 **복사**하고 [새 이슈](https://github.com/kachy2/futsalcut/issues/new/choose)에 붙여 넣습니다.
 
-Optional: the person detector runs on the CPU (WASM) by default. Under the zone editor you can choose **WebGPU** (graphics chip, experimental) for the next analysis; the app checks it against the CPU results first and falls back by itself. In the diagnostics, **detector test (WebGPU)** shows the speed and how closely the two agree.
-선택 사항: 사람 검출은 기본적으로 CPU(WASM)로 실행됩니다. 구역 편집 화면에서 **WebGPU**(그래픽 칩, 실험적)를 고르면 다음 분석부터 사용하며, CPU 결과와 먼저 비교한 뒤 문제가 있으면 스스로 CPU로 돌아갑니다. 진단 정보의 **detector test (WebGPU)** 버튼은 속도와 CPU 결과와의 일치 정도를 보여 줍니다.
+The person detector picks its hardware by itself (**Auto**): the graphics chip (WebGPU) when the browser offers a real one and it gives the same results as the CPU without being slower, otherwise the CPU (WASM, several threads). Under the zone editor you can force either one. The diagnostics show what was used (`detectorBackend`), the check (`detectorGpuCheck`: result difference and time per frame of the graphics chip and the CPU) and the speed (`detectorMsPerCall`); **detector test (auto)** repeats the check, and the WASM / WebGPU buttons test one backend.
+사람 검출은 하드웨어를 스스로 고릅니다(**자동**). 브라우저가 진짜 그래픽 칩을 제공하고 CPU와 같은 결과를 내며 더 느리지 않으면 그래픽 칩(WebGPU)을, 아니면 CPU(WASM, 멀티스레드)를 씁니다. 구역 편집 화면에서 어느 쪽이든 강제로 고를 수 있습니다. 진단 정보에는 실제로 쓴 방식(`detectorBackend`), 확인 결과(`detectorGpuCheck`: 결과 차이와 그래픽 칩·CPU의 프레임당 시간), 속도(`detectorMsPerCall`)가 나옵니다. **detector test (auto)** 버튼은 같은 확인을 다시 하고, WASM / WebGPU 버튼은 한쪽만 시험합니다.
 
 ## Please also tell us / 함께 알려 주세요
 - Camera or phone model, codec (H.264 or HEVC), resolution, number of files, length. 카메라·휴대폰 모델, 코덱, 해상도, 파일 수, 길이.

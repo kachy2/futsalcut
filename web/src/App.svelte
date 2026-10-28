@@ -50,20 +50,25 @@
   let resultZone = $state.raw<Point[]>([]); // the zone the shown result was computed with
   const hasResult = $derived(!!result && analyzedKey === filesKey);
   const canReuse = $derived(hasResult && result?.diagnostics.sampleStore !== 'none');
-  // test overrides: ?threads=N sets the detector's WASM threads, ?gpuwait=S the seconds WebGPU may take to set up
+  // test overrides: ?threads=N sets the detector's WASM threads, ?gpuwait=S the seconds WebGPU may take to set up,
+  // ?gpuany=1 lets 'auto' take a software WebGPU adapter
   const threads = Number(new URLSearchParams(location.search).get('threads')) || undefined;
   const webgpuWaitS = Number(new URLSearchParams(location.search).get('gpuwait')) || undefined;
+  const anyGpu = new URLSearchParams(location.search).get('gpuany') === '1' || undefined; // ?gpuany=1: 'auto' may use a software adapter
 
   // controls
   let mode = $state<'auto' | 'sens' | 'target'>('auto');
   let sensitivity = $state(70);
   let targetMin = $state(10);
   let algo = $state('auto');
-  let detectorBackend = $state<'wasm' | 'webgpu'>('wasm'); // WebGPU is experimental: it fails on some GPUs
+  let detectorBackend = $state<'auto' | 'wasm' | 'webgpu'>('auto'); // auto: the graphics chip where it is real and not slower than the CPU threads
   let showAdvanced = $state(false);
   let showLanes = $state(false);
   let post = $state<PostParams | null>(null);
   let qcQuestions = $state<number[] | null>(null);
+  // what Quick calibration chose; shown (with an undo) for as long as the controls still hold exactly that
+  let cal = $state<{ algo: string; sensitivity: number; agree: number; total: number } | null>(null);
+  const calShown = $derived(!!cal && mode === 'sens' && algo === cal.algo && sensitivity === cal.sensitivity);
 
   // export
   let exporting = $state<{ doneS: number; totalS: number } | null>(null);
@@ -85,12 +90,12 @@
   })();
   const diagText = () => JSON.stringify({ env, ...result!.diagnostics, files: result!.files }, null, 1);
 
-  function runProbe(prefer: 'wasm' | 'webgpu' = 'wasm') {
+  function runProbe(prefer: 'auto' | 'wasm' | 'webgpu' = 'wasm') {
     probe = '…';
     const w = new Worker(new URL('./worker/detector-probe.ts', import.meta.url), { type: 'module' });
     w.onmessage = (e) => { probe = JSON.stringify(e.data); w.terminate(); };
     w.onerror = (e) => { probe = 'error: ' + e.message; w.terminate(); };
-    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href, prefer, threads, webgpuWaitS });
+    w.postMessage({ modelUrl: new URL('models/dfine_n_coco.onnx', base).href, prefer, threads, webgpuWaitS, anyGpu });
   }
 
   const base = APP_ROOT;
@@ -120,6 +125,8 @@
       m.blobs.forEach((b, k) => (next[m.start + k] = b));
       thumbs = next;
     } else if (m.type === 'result') {
+      if (calShown) { mode = 'auto'; algo = 'auto'; } // a calibration belongs to the result it was made on
+      cal = null;
       result = m.result;
       resultZone = $state.snapshot(zone);
       analyzedKey = filesKey;
@@ -163,7 +170,7 @@
     progress = { stage: reuse ? 'replay' : 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
     analyzer.postMessage({
       type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto', detectorBackend,
-      reuse, ortThreads: threads, webgpuWaitS, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
+      reuse, ortThreads: threads, webgpuWaitS, anyGpu, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
       modelJson: $state.snapshot(model),
     });
   }
@@ -218,7 +225,8 @@
     const r = quickCalibrate(p, answers, 'ensemble');
     algo = r.name === 'ensemble' ? 'auto' : r.name;
     mode = 'sens';
-    sensitivity = Math.round((1 - r.threshold) * 100);
+    sensitivity = Math.min(98, Math.max(2, Math.round((1 - r.threshold) * 100))); // the slider's range
+    cal = { algo, sensitivity, agree: r.agree, total: r.total };
     qcQuestions = null;
   }
 
@@ -303,6 +311,7 @@
         <span class="spacer"></span>
         <label class="small">{t.detectorLabel}
           <select id="detector-backend" bind:value={detectorBackend}>
+            <option value="auto">{t.detAuto}</option>
             <option value="wasm">{t.detWasm}</option>
             <option value="webgpu">{t.detWebgpu}</option>
           </select>
@@ -368,6 +377,10 @@
           <label><input type="checkbox" bind:checked={showLanes} /> {t.lanes}</label>
         </div>
       {/if}
+      {#if calShown && cal}
+        <p class="small muted" id="cal-note" style="margin-top:8px">{t.calApplied(cal.sensitivity, cal.agree, cal.total, cal.algo === 'auto' ? '' : cal.algo)}
+          <button class="small" onclick={() => { mode = 'auto'; algo = 'auto'; }}>{t.calUndo}</button></p>
+      {/if}
       {#if !selection.intervals.length}<p class="error small" style="margin-top:8px">{t.noScenes}</p>{/if}
     </div>
 
@@ -397,6 +410,7 @@
       <div class="row">
         <button onclick={async () => { await navigator.clipboard.writeText(diagText()); copied = true; }}>
           {copied ? t.copied : t.copy}</button>
+        <button id="probe-auto" onclick={() => runProbe('auto')}>detector test (auto)</button>
         <button id="probe" onclick={() => runProbe('wasm')}>detector test (WASM)</button>
         <button id="probe-webgpu" onclick={() => runProbe('webgpu')}>detector test (WebGPU)</button>
       </div>

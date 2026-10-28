@@ -74,9 +74,10 @@ function bestThreshold(p: number[], ans: boolean[], prior: number): [number, num
   return [best![0], best![2]];
 }
 
-/** Tune the default scorer's threshold with the user's answers; switch scorer only with a clear margin. */
+/** Tune the default scorer's threshold with the user's answers; switch scorer only with a clear margin.
+ * `agree` of `total` answers are reproduced by the chosen scorer and threshold. */
 export function quickCalibrate(probs: Record<string, ArrayLike<number>>, answers: Map<number, boolean>,
-  defaultName = 'ensemble', switchMargin = 2, prior = 0.5): { name: string; threshold: number } {
+  defaultName = 'ensemble', switchMargin = 2, prior = 0.5): { name: string; threshold: number; agree: number; total: number } {
   const idx = [...answers.keys()].sort((a, b) => a - b);
   const ans = idx.map((i) => answers.get(i)!);
   const pick = (name: string) => bestThreshold(idx.map((i) => probs[name][i]), ans, prior);
@@ -87,5 +88,5 @@ export function quickCalibrate(probs: Record<string, ArrayLike<number>>, answers
     const [agree, thr] = pick(name);
     if (agree >= dAgree + switchMargin && agree > best.agree) best = { name, threshold: thr, agree };
   }
-  return { name: best.name, threshold: best.threshold };
+  return { name: best.name, threshold: best.threshold, agree: best.agree, total: idx.length };
 }
