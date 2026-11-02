@@ -19,9 +19,10 @@
   "min_score": 0.4,
   "perspective_stride": 12,
   "cascade": [
-   0.05,
-   0.95
-  ]
+   0.2,
+   0.8
+  ],
+  "cascade_note": "0.2-0.8 since 2026-11-02 (was 0.05-0.95): same edit precision/recall on video_1 at thresholds 0.15, 0.3 and 0.5 with about half the detector calls, see eval/reports/cascade_budget.md"
  },
  "perspectives": {
   "video_1": {
