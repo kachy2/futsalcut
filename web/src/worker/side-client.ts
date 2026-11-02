@@ -20,9 +20,9 @@ export interface SideWork {
   readonly remote: boolean;
   /** with the first sample: its size, and the zone pass 1 looks at */
   start(W: number, H: number, zone: Point[]): void;
-  /** One sample: `luma` goes to pass 1, a thumbnail is drawn from `frame` (the caller closes its own reference afterwards).
-   * Returns once the helper has taken it over; waits while the helper is behind. */
-  push(luma: Uint8Array, frame: VideoFrame, rotation: number): Promise<void>;
+  /** One sample: `luma` goes to pass 1, a thumbnail is drawn from `frame` if there is one (the caller closes its own reference
+   * afterwards; without a frame the thumbnail is made elsewhere). Returns once the helper has taken it over; waits while the helper is behind. */
+  push(luma: Uint8Array, frame: VideoFrame | null, rotation: number): Promise<void>;
   /** the end of the stream: the pass-1 results; every thumbnail has been delivered by then */
   end(): Promise<SideResult>;
   close(): void;
@@ -31,7 +31,7 @@ export interface SideWork {
 export type SideRequest =
   | { type: 'ping' }
   | { type: 'start'; W: number; H: number; zone: Point[] }
-  | { type: 'sample'; luma: Uint8Array; frame: VideoFrame; rotation: number }
+  | { type: 'sample'; luma: Uint8Array; frame?: VideoFrame; rotation: number }
   | { type: 'end' };
 
 export type SideReply =
@@ -59,10 +59,11 @@ class InlineSide implements SideWork {
     this.sp = new StreamingPass1(W, H, polygonMask(zone, W, H));
   }
 
-  async push(luma: Uint8Array, frame: VideoFrame, rotation: number): Promise<void> {
+  async push(luma: Uint8Array, frame: VideoFrame | null, rotation: number): Promise<void> {
     let s = performance.now();
     this.sp!.push(luma);
     this.pass1S += lap(s);
+    if (!frame) return;
     s = performance.now();
     await this.thumbs.add(frame, rotation);
     this.thumbS += lap(s);
@@ -114,12 +115,13 @@ class RemoteSide implements SideWork {
     this.worker.postMessage({ type: 'start', W, H, zone } satisfies SideRequest);
   }
 
-  async push(luma: Uint8Array, frame: VideoFrame, rotation: number): Promise<void> {
+  async push(luma: Uint8Array, frame: VideoFrame | null, rotation: number): Promise<void> {
     while (this.behind >= MAX_BEHIND && !this.failure) await new Promise<void>((r) => this.waiters.push(r));
     if (this.failure) throw this.failure;
     this.behind++;
     try {
-      this.worker.postMessage({ type: 'sample', luma, frame, rotation } satisfies SideRequest); // luma is copied, frame shares the decoder's picture
+      // luma is copied, a frame shares the decoder's picture
+      this.worker.postMessage((frame ? { type: 'sample', luma, frame, rotation } : { type: 'sample', luma, rotation }) satisfies SideRequest);
     } catch (e) {
       this.behind--;
       throw new Error(`cannot hand a frame to the helper worker: ${(e as Error)?.message ?? e}`);

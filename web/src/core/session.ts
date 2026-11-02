@@ -32,6 +32,10 @@ export interface AnalyzeRequest {
   anyGpu?: boolean;
   /** false: no helper workers (the detector and the pass-1 / thumbnail work stay in the analysis worker); for tests and troubleshooting */
   parallel?: boolean;
+  /** test override: a second (CPU) detector helps in the cascade even when the main one is not on the graphics chip */
+  dualDetector?: boolean;
+  /** test override: the light-probability band whose samples go to the detector (default: the model's) */
+  cascadeBand?: [number, number];
   /** same files as the last analysis and only the zone changed: reuse its decoded samples and detector boxes */
   reuse?: boolean;
   modelUrl: string;
@@ -78,6 +82,20 @@ export interface Diagnostics {
    * for the helpers after the last frame */
   sideWaitS?: number;
   tailWaitS?: number;
+  /** the luma helper shrank the samples and made the thumbnails (lumaS is then only the copying); lumaWaitS: waiting for it */
+  lumaWorker?: boolean;
+  lumaWaitS?: number;
+  /** cascade calls answered by the main detector and by the helping CPU detector (secondDetector: its backend, null if none ran) */
+  detectorSplit?: { primary: number; secondary: number };
+  secondDetector?: string | null;
+  secondDetectorMsPerCall?: number;
+  secondDetectorSetupS?: number;
+  /** the zone (normalized corners), how sure the light ensemble was (ten bins of probability), the share of samples sent to the
+   * detector and the probability band that decides that */
+  zone?: number[][];
+  lightHistogram?: number[];
+  unsureShare?: number | null;
+  cascadeBand?: number[];
   /** creating the detector: model download, sessions, and for 'auto' / WebGPU the check against the CPU */
   detectorSetupS?: number;
   /** inside lumaS: copying the frame out of the decoder, and shrinking it to the 640-px luma */

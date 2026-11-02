@@ -12,6 +12,17 @@ export class Limiter {
   /** tasks in flight right now */
   get running(): number { return this.active.size; }
 
+  /** `run` would start a task at once */
+  get hasRoom(): boolean { return this.active.size < this.cap && !this.failure; }
+
+  /** a task has failed; `run` and `drain` throw that failure */
+  get failed(): boolean { return !!this.failure; }
+
+  /** Resolves when a task settles, or at once if there is room (or a failure): for choosing between several limiters. */
+  async untilRoom(): Promise<void> {
+    if (this.active.size >= this.cap && !this.failure) await Promise.race(this.active);
+  }
+
   async run(task: () => Promise<void>): Promise<void> {
     while (this.active.size >= this.cap && !this.failure) await Promise.race(this.active);
     if (this.failure) throw this.failure.error;

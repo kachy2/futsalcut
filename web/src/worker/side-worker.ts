@@ -28,11 +28,13 @@ async function handle(m: SideRequest): Promise<void> {
         let s = performance.now();
         sp!.push(m.luma);
         pass1S += lap(s);
-        s = performance.now();
-        await thumbs.add(m.frame, m.rotation);
-        thumbS += lap(s);
+        if (m.frame) { // without a frame the thumbnail is made by the luma helper
+          s = performance.now();
+          await thumbs.add(m.frame, m.rotation);
+          thumbS += lap(s);
+        }
       } finally {
-        m.frame.close();
+        m.frame?.close();
       }
       send({ type: 'ack' });
     } else {

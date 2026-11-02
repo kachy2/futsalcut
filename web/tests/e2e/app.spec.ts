@@ -30,7 +30,7 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
     detectorIsolated: diag.detectorIsolated }));
   expect(diag.detectorBackend).toMatch(/wasm|webgpu/); // the detector must always end up running
   const parallel = !/parallel=0/.test(process.env.APP_QUERY ?? '');
-  expect([diag.detectorWorker, diag.sideWorker]).toEqual([parallel, parallel]); // the helper workers did start (or were switched off)
+  expect([diag.detectorWorker, diag.sideWorker, diag.lumaWorker]).toEqual([parallel, parallel, parallel]); // the helpers did start (or were off)
   if (parallel) expect(diag.detectorIsolated).toBe(true); // also in the worker inside the worker: WASM threads need it
   if (process.env.EXPECT_BACKEND) expect(diag.detectorBackend).toBe(process.env.EXPECT_BACKEND);
   if (process.env.EXPECT_CHECK) expect(String(diag.detectorGpuCheck)).toMatch(new RegExp(process.env.EXPECT_CHECK));

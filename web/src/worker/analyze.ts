@@ -1,8 +1,9 @@
 /// <reference lib="webworker" />
 /**
- * Analysis worker: keyframe decode (WebCodecs) -> luma samples, with streaming pass 1 and the thumbnails in a helper worker and the
- * detector (also a worker of its own) on a sparse stride (perspective) -> pass 2 -> light ensemble -> detector on unsure samples
- * (cascade): the frame for the next detector call is prepared here while the detector works on the last one.
+ * Analysis worker: keyframe decode (WebCodecs) and copy of each frame's planes -> luma samples, shrunk (with the thumbnail) in a
+ * luma helper worker, streaming pass 1 in another helper, the detector (a worker of its own) on a sparse stride (perspective)
+ * -> pass 2 -> light ensemble -> detector on unsure samples (cascade): the frame for the next detector call is prepared here
+ * while the detector works on the last one, and a graphics-chip detector gets a CPU detector beside it where there are cores.
  * The luma samples and the detector boxes of the last run are kept (see Cache), so that a new zone for the
  * same files is evaluated without decoding the video again.
  */
@@ -14,11 +15,16 @@ import { polygonMask } from '../core/roi';
 import type { AnalysisResult, AnalyzeRequest, Diagnostics, SessionFile, WorkerMessage } from '../core/session';
 import { StreamingPass1 } from '../core/streaming';
 import { createPipelinedDetector, type PipelinedDetector } from './detector-client';
-import { drawRotated, frameToLuma, lumaClock } from './luma';
+import { canThumbFromPlanes, copyPlanes, drawRotated, frameToLuma, lumaClock, type LumaSample } from './luma';
+import { openLumaWorker, type LumaDone, type LumaWorker } from './luma-client';
 import { openSide, type SideWork } from './side-client';
+import { FrameThumbs, ThumbBatch } from './thumbs';
 
 const MIN_SPACING = 0.9; // seconds between taken keyframes (same rule as the Python sampler)
 const IN_FLIGHT = 3;               // cascade: detector calls handed over before the first answer is back (detector in its own worker)
+const SECOND_IN_FLIGHT = 2;        // the same for the CPU detector that helps a graphics-chip detector in the cascade
+const SECOND_MIN_CORES = 8;        // logical cores needed before a CPU detector joins a graphics-chip detector
+const LUMA_AHEAD = 3;              // copied frames the luma helper may still be shrinking while the next one is copied (about 12 MB each at 4K)
 const STRIDE_QUEUE = 24;           // sparse calls while decoding: frames (1.6 MB each) that may wait for the detector, which is still being set up at first
 const UNSURE_SHARE = 0.3;          // about this share of the samples is uncertain (29% on the evaluated recording): guess for the time estimate
 const KEYFRAME_REDECODE_S = 0.3;   // decoding one key frame again for the cascade (the detector runs in this thread then: no overlap)
@@ -261,12 +267,17 @@ interface Run {
   /** seconds since the analysis began */
   wall(): number;
   sessionS: number;
-  /** milliseconds per detector call (inference only), for the pace estimate and the diagnostics */
+  /** milliseconds per detector call (inference only), for the pace estimate and the diagnostics; detTimes2: the helping CPU detector */
   detTimes: number[];
+  detTimes2: number[];
   timing: { luma: number; pass1: number; thumb: number; strideDet: number; redecode: number; replay: number; prep: number; setup: number;
-    side: number; tail: number };
-  /** whether pass 1 and the thumbnails ran in a helper worker (null: this run did not decode) */
+    side: number; tail: number; lumaWait: number; shrinkHelper: number; thumbHelper: number; secondSetup: number };
+  /** whether pass 1 ran in a helper worker, and whether the luma helper shrank the samples (null: this run did not decode) */
   sideRemote: boolean | null;
+  lumaRemote: boolean | null;
+  /** cascade calls answered by the main detector and by the helping CPU detector, and the latter's backend if it ran */
+  split: { primary: number; secondary: number };
+  secondBackend: string | null;
   getDetector(): Promise<PipelinedDetector | null>;
 }
 
@@ -284,21 +295,40 @@ class FramePrep {
   }
 }
 
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+
+/** Counts of probabilities in ten bins of width 0.1 (diagnostics: how sure the light ensemble is). */
+function histogram(p: ArrayLike<number>): number[] {
+  const bins = new Array<number>(10).fill(0);
+  for (let i = 0; i < p.length; i++) bins[Math.min(9, Math.max(0, Math.floor(p[i] * 10)))]++;
+  return bins;
+}
+
 /** Seconds one cascade item takes: the detector call, plus the frame work that does not overlap with it (all of it if the detector runs in this thread). */
 const cascadeItemS = (detMs: number, overlapped: boolean) => detMs / 1000 + (overlapped ? OVERLAPPED_PREP_S : KEYFRAME_REDECODE_S);
 
-/** Decode every keyframe once: luma samples -> the sample store; pass 1 (zone dependent) and the thumbnails in a helper worker; sparse detector boxes. */
+/** Decode every keyframe once: luma samples -> the sample store; shrinking and thumbnails in the luma helper, pass 1 (zone
+ * dependent) in the side helper; sparse detector boxes. Without helpers the same work happens here. */
 async function decodeAll(run: Run): Promise<Pass1[]> {
-  const side = await openSide(run.req.parallel !== false, (start, blobs) => post({ type: 'thumbs', start, blobs }));
+  const parallel = run.req.parallel !== false;
+  const [side, lumaW] = await Promise.all([
+    openSide(parallel, (start, blobs) => post({ type: 'thumbs', start, blobs })),
+    parallel ? openLumaWorker() : Promise.resolve(null),
+  ]);
   run.sideRemote = side.remote;
+  run.lumaRemote = !!lumaW;
   try {
-    return await decodeWith(run, side);
+    return await decodeWith(run, side, lumaW);
   } finally {
     side.close();
+    lumaW?.close();
   }
 }
 
-async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
+/** A sample on its way through the luma helper (or already shrunk here), with the thumbnail made here if the helper cannot. */
+interface PendingSample { idx: number; job: Promise<LumaDone> | null; inline: LumaSample | null; thumb: Promise<Blob> | null }
+
+async function decodeWith(run: Run, side: SideWork, lumaW: LumaWorker | null): Promise<Pass1[]> {
   const { req, c, timing } = run;
   const detectorP = run.getDetector(); // set up while the decoding goes on: the frames meant for it wait until it is ready
   const prep = req.detector === 'off' ? null : new FramePrep(timing);
@@ -306,6 +336,47 @@ async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
   const calls = new Limiter(STRIDE_QUEUE); // the same bound before and after the detector is ready, or the decoding would stop to let the backlog drain
   let started = false;
   const lap = (since: number) => (performance.now() - since) / 1000;
+  const pending: PendingSample[] = []; // in sample order
+  const spare: ArrayBuffer[] = [];     // copy buffers the luma helper gave back
+  const frameThumbs = new FrameThumbs();
+  const thumbBatch = new ThumbBatch((start, blobs) => post({ type: 'thumbs', start, blobs }));
+
+  /** A finished luma sample, in sample order: the first one fixes the size; it goes into the store. */
+  const accept = async (luma: LumaSample) => {
+    c.formats.add(luma.format);
+    if (luma.path === 'exact') c.exact++; else c.fallback++;
+    if (!started) {
+      started = true;
+      c.W = luma.w;
+      c.H = luma.h;
+      side.start(c.W, c.H, req.zone);
+      await c.store.open(c.W * c.H);
+    }
+    c.store.append(luma.data);
+  };
+
+  /** The oldest sample on its way through the luma helper: wait for it, store it, hand it to pass 1, deliver its thumbnail. */
+  const flushOne = async () => {
+    const p = pending.shift()!;
+    let s = performance.now();
+    let luma = p.inline;
+    let thumb: Blob | null = null;
+    if (p.job) {
+      const d = await p.job;
+      spare.push(d.buf);
+      timing.shrinkHelper += d.shrinkS;
+      timing.thumbHelper += d.thumbS;
+      luma = { data: d.luma, w: d.w, h: d.h, path: 'exact', format: d.format };
+      thumb = d.thumb;
+    }
+    if (p.thumb) thumb = await p.thumb;
+    timing.lumaWait += lap(s);
+    await accept(luma!);
+    s = performance.now();
+    await side.push(luma!.data, null, 0); // pass 1 only: the thumbnail came with the luma
+    timing.side += lap(s);
+    if (thumb) thumbBatch.add(p.idx, thumb);
+  };
 
   for (let fi = 0; fi < c.opened.length; fi++) {
     const o = c.opened[fi];
@@ -320,23 +391,30 @@ async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
     const handle = async (f: VideoFrame) => {
       try {
         const lt = f.timestamp / 1e6 - o.info.firstTimestamp;
-        let s = performance.now();
-        const luma = await frameToLuma(f, o.info.rotation);
-        timing.luma += lap(s);
-        c.formats.add(luma.format);
-        if (luma.path === 'exact') c.exact++; else c.fallback++;
-        if (!started) {
-          started = true;
-          c.W = luma.w;
-          c.H = luma.h;
-          side.start(c.W, c.H, req.zone);
-          await c.store.open(c.W * c.H);
-        }
         const idx = c.t.length;
-        c.store.append(luma.data);
-        s = performance.now();
-        await side.push(luma.data, f, o.info.rotation); // pass 1 and the thumbnail; with a helper worker they run beside the decoding
-        timing.side += lap(s);
+        let s = performance.now();
+        if (lumaW) {
+          // copy here (that needs the frame); the helper shrinks it while the next frame is decoded and copied
+          const raw = await copyPlanes(f, spare.pop());
+          timing.luma += lap(s);
+          if (raw) {
+            const inHelper = canThumbFromPlanes(raw);
+            pending.push({ idx, job: lumaW.shrink(idx, raw, o.info.rotation, inHelper), inline: null,
+              thumb: inHelper ? null : frameThumbs.make(f, o.info.rotation) });
+          } else { // RGB or GPU-only frame: the canvas path, here
+            s = performance.now();
+            const inline = await frameToLuma(f, o.info.rotation);
+            timing.luma += lap(s);
+            pending.push({ idx, job: null, inline, thumb: frameThumbs.make(f, o.info.rotation) });
+          }
+        } else {
+          const luma = await frameToLuma(f, o.info.rotation);
+          timing.luma += lap(s);
+          await accept(luma);
+          s = performance.now();
+          await side.push(luma.data, f, o.info.rotation); // pass 1 and the thumbnail; with a helper worker they run beside the decoding
+          timing.side += lap(s);
+        }
         c.t.push(o.info.offsetS + lt);
         c.fileIndex.push(fi);
         c.localT.push(lt);
@@ -356,6 +434,7 @@ async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
       } finally {
         f.close();
       }
+      while (pending.length > LUMA_AHEAD) await flushOne(); // after the frame is closed: the decoder can reuse it meanwhile
     };
 
     const d0 = performance.now();
@@ -383,9 +462,11 @@ async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
     }
     c.decodeS += lap(d0);
   }
+  const w0 = performance.now();
+  while (pending.length) await flushOne();
+  thumbBatch.flush();
   if (!started) throw new Error('no samples decoded');
   c.complete = true;
-  const w0 = performance.now();
   await calls.drain(); // sparse detector calls that are still running
   const done = await side.end();
   timing.tail = lap(w0);
@@ -419,7 +500,8 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const t0 = performance.now();
   lumaClock.copy = 0;
   lumaClock.shrink = 0;
-  const model = req.modelJson as ModelFile;
+  const shipped = req.modelJson as ModelFile;
+  const model: ModelFile = req.cascadeBand ? { ...shipped, detector: { ...shipped.detector, cascade: req.cascadeBand } } : shipped;
   const key = req.files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('|');
   const reuse = req.reuse !== false && !!cache?.complete && !cache.store.broken && cache.key === key;
   if (!reuse) await dropCache();
@@ -439,9 +521,13 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
 
   let creating: Promise<PipelinedDetector | null> | null = null; // one setup per run, however often the detector is asked for
   const run: Run = {
-    req, model, c, t0, wall: () => (performance.now() - t0) / 1000, sessionS: files.reduce((s, f) => s + f.durationS, 0), detTimes: [],
-    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0, prep: 0, setup: 0, side: 0, tail: 0 },
+    req, model, c, t0, wall: () => (performance.now() - t0) / 1000, sessionS: files.reduce((s, f) => s + f.durationS, 0), detTimes: [], detTimes2: [],
+    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0, prep: 0, setup: 0, side: 0, tail: 0,
+      lumaWait: 0, shrinkHelper: 0, thumbHelper: 0, secondSetup: 0 },
     sideRemote: null,
+    lumaRemote: null,
+    split: { primary: 0, secondary: 0 },
+    secondBackend: null,
     getDetector() {
       creating ??= (async () => {
         if (req.detector === 'off') return null;
@@ -488,9 +574,11 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const detScores = new Map<number, number>();
   const count = (boxes: number[][]) => detectorCount(boxes, req.zone, model.detector.min_score);
   let prob = light;
+  let unsureShare: number | null = null;
   const ds0 = performance.now();
   if (req.detector !== 'off') {
     const unsure = unsureSamples(model, light);
+    unsureShare = light.length ? unsure.length / light.length : 0;
     for (const i of [...c.strideIdx, ...unsure]) {
       const b = c.boxes.get(i);
       if (b) detScores.set(i, count(b));
@@ -508,6 +596,22 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
         wallS: run.wall(), stageWallS: (performance.now() - ds0) / 1000, itemHintS: hint });
       const finish = () => { finished++; if (!over) progress(finished); };
       progress(0);
+      // A CPU detector beside a graphics-chip detector: the processor has little else to do in this stage. It joins once it is
+      // set up and takes a frame only when the graphics chip has no free slot. (Test override: two CPU detectors.)
+      const wantSecond = detector.remote && (!!req.dualDetector
+        || (detector.backend === 'webgpu' && (navigator.hardwareConcurrency || 0) >= SECOND_MIN_CORES));
+      const calls2 = new Limiter(SECOND_IN_FLIGHT);
+      const helper = { d: null as PipelinedDetector | null };
+      const s2 = performance.now();
+      const secondP = wantSecond
+        ? createPipelinedDetector(req.modelUrl, 'wasm', req.ortThreads, {}, true).then((d) => {
+          run.timing.secondSetup = (performance.now() - s2) / 1000;
+          if (over) { void d.release(); return null; } // the stage ended before it was ready
+          helper.d = d;
+          run.secondBackend = d.backend;
+          return d;
+        }, (e) => { console.warn('second detector unavailable', e); return null; })
+        : null;
       const start = (i: number) => c.readers[c.fileIndex[i]].read(c.localT[i]);
       let next: Promise<VideoFrame | null> | null = start(todo[0]);
       try {
@@ -525,14 +629,22 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
             } finally {
               frame.close();
             }
-            // the detector works on this one while the loop goes on to prepare the next frame
-            await calls.run(async () => {
-              const det = await detector.submit(px);
-              run.detTimes.push(det.ms);
+            // a detector works on this one while the loop goes on to prepare the next frame
+            const detect = (d: PipelinedDetector, which: 'primary' | 'secondary') => async () => {
+              const det = await d.submit(px);
+              (which === 'primary' ? run.detTimes : run.detTimes2).push(det.ms);
+              run.split[which]++;
               c.boxes.set(i, det.boxes);
               detScores.set(i, count(det.boxes));
               finish();
-            });
+            };
+            for (;;) {
+              const second = helper.d;
+              if (!second || calls.hasRoom || calls.failed) { await calls.run(detect(detector, 'primary')); break; } // run() throws a failure
+              if (calls2.failed) await calls2.drain(); // throws its failure
+              if (calls2.hasRoom) { await calls2.run(detect(second, 'secondary')); break; }
+              await Promise.race([calls.untilRoom(), calls2.untilRoom()]);
+            }
           } else {
             finish();
           }
@@ -540,10 +652,12 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
           if (k + 1 >= todo.length || c.fileIndex[todo[k + 1]] !== c.fileIndex[i]) c.readers[c.fileIndex[i]].close();
         }
         await calls.drain();
+        await calls2.drain();
       } finally {
         over = true;
         (await next?.catch(() => null))?.close(); // a prefetched frame nobody used
         for (const r of c.readers) r.close();
+        void secondP?.then((d) => d?.release()); // its threads and model are not kept for a later run
       }
     }
     if (detector || c.boxes.size) prob = cascadeProb(model, scores, light, detScores);
@@ -555,13 +669,18 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
     wallS, decodeS: reuse ? 0 : c.decodeS, featuresS, detectorS: (performance.now() - ds0) / 1000, samples: c.t.length, sessionS: run.sessionS,
     xRealtime: run.sessionS / wallS, frameFormats: [...c.formats], exactPath: c.exact, fallbackPath: c.fallback,
     detectorBackend: detector?.backend ?? (c.boxes.size ? 'cached' : 'off'), detectorAsked: req.detectorBackend ?? 'auto', detectorFallbackReason: detector?.fallbackReason ?? null, detectorGpuCheck: detector?.gpuCheck ?? null,
-    detectorCalls: run.detTimes.length, detectorThreads: detector?.threads, crossOriginIsolated: self.crossOriginIsolated,
-    detectorMsPerCall: run.detTimes.length ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : 0,
-    reused: reuse, replayS: run.timing.replay, lumaS: run.timing.luma, pass1S: run.timing.pass1, thumbS: run.timing.thumb,
+    detectorCalls: run.detTimes.length + run.detTimes2.length, detectorThreads: detector?.threads, crossOriginIsolated: self.crossOriginIsolated,
+    detectorMsPerCall: mean(run.detTimes),
+    reused: reuse, replayS: run.timing.replay, lumaS: run.timing.luma, pass1S: run.timing.pass1, thumbS: run.timing.thumb + run.timing.thumbHelper,
     strideDetectorS: run.timing.strideDet, redecodeS: run.timing.redecode, sampleStore: c.store.kind,
-    detectorSetupS: run.timing.setup, lumaCopyS: reuse ? 0 : lumaClock.copy, lumaShrinkS: reuse ? 0 : lumaClock.shrink, frameToBoxesS: run.timing.prep,
+    detectorSetupS: run.timing.setup, lumaCopyS: reuse ? 0 : lumaClock.copy, lumaShrinkS: reuse ? 0 : lumaClock.shrink + run.timing.shrinkHelper,
+    frameToBoxesS: run.timing.prep,
     detectorWorker: detector?.remote, sideWorker: run.sideRemote ?? undefined, detectorIsolated: detector?.isolated,
+    lumaWorker: run.lumaRemote ?? undefined, lumaWaitS: run.timing.lumaWait,
     sideWaitS: run.timing.side, tailWaitS: run.timing.tail,
+    detectorSplit: run.split, secondDetector: run.secondBackend, secondDetectorMsPerCall: mean(run.detTimes2), secondDetectorSetupS: run.timing.secondSetup,
+    zone: req.zone.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]),
+    lightHistogram: histogram(light), unsureShare, cascadeBand: model.detector.cascade,
     perspective: persp, userAgent: navigator.userAgent,
   };
   const result: AnalysisResult = {

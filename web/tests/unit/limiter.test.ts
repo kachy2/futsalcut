@@ -84,6 +84,27 @@ describe('Limiter', () => {
     await expect(other.drain()).rejects.toThrow('early');
   });
 
+  it('tells whether there is room and waits for room without starting anything', async () => {
+    const lim = new Limiter(1);
+    expect(lim.hasRoom).toBe(true);
+    await lim.untilRoom(); // room: returns at once
+    const g = gate();
+    await lim.run(async () => { await g.done; });
+    expect(lim.hasRoom).toBe(false);
+    let roomy = false;
+    const w = lim.untilRoom().then(() => { roomy = true; });
+    await tick();
+    expect(roomy).toBe(false);
+    g.finish();
+    await w;
+    expect([roomy, lim.hasRoom, lim.failed]).toEqual([true, true, false]);
+    const bad = new Limiter(1);
+    await bad.run(async () => { throw new Error('x'); });
+    await tick();
+    expect([bad.hasRoom, bad.failed]).toEqual([false, true]);
+    await bad.untilRoom(); // a failure does not keep anyone waiting
+  });
+
   it('a waiting run is released by a failure instead of waiting for a slot forever', async () => {
     const lim = new Limiter(1);
     const g = gate();

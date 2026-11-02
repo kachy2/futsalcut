@@ -51,11 +51,17 @@
   const hasResult = $derived(!!result && analyzedKey === filesKey);
   const canReuse = $derived(hasResult && result?.diagnostics.sampleStore !== 'none');
   // test overrides: ?threads=N sets the detector's WASM threads, ?gpuwait=S the seconds WebGPU may take to set up,
-  // ?gpuany=1 lets 'auto' take a software WebGPU adapter, ?parallel=0 keeps the detector and pass 1 in the analysis worker (no helper workers)
+  // ?gpuany=1 lets 'auto' take a software WebGPU adapter, ?parallel=0 keeps the detector and pass 1 in the analysis worker (no helper workers),
+  // ?dualdet=1 adds the helping CPU detector in the cascade even without a graphics-chip detector, ?band=lo,hi sets the
+  // light-probability band whose samples go to the detector
   const threads = Number(new URLSearchParams(location.search).get('threads')) || undefined;
   const webgpuWaitS = Number(new URLSearchParams(location.search).get('gpuwait')) || undefined;
   const anyGpu = new URLSearchParams(location.search).get('gpuany') === '1' || undefined; // ?gpuany=1: 'auto' may use a software adapter
   const parallel = new URLSearchParams(location.search).get('parallel') === '0' ? false : undefined;
+  const dualDetector = new URLSearchParams(location.search).get('dualdet') === '1' || undefined;
+  const bandArg = (new URLSearchParams(location.search).get('band') ?? '').split(',').map(Number);
+  const cascadeBand = bandArg.length === 2 && bandArg.every((v) => v >= 0 && v <= 1) && bandArg[0] < bandArg[1]
+    ? (bandArg as [number, number]) : undefined;
 
   // controls
   let mode = $state<'auto' | 'sens' | 'target'>('auto');
@@ -171,7 +177,8 @@
     progress = { stage: reuse ? 'replay' : 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
     analyzer.postMessage({
       type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto', detectorBackend,
-      reuse, ortThreads: threads, webgpuWaitS, anyGpu, parallel, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
+      reuse, ortThreads: threads, webgpuWaitS, anyGpu, parallel, dualDetector, cascadeBand,
+      modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
       modelJson: $state.snapshot(model),
     });
   }
