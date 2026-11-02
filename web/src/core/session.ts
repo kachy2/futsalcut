@@ -30,6 +30,8 @@ export interface AnalyzeRequest {
   webgpuWaitS?: number;
   /** test override: 'auto' may also pick a software WebGPU adapter */
   anyGpu?: boolean;
+  /** false: no helper workers (the detector and the pass-1 / thumbnail work stay in the analysis worker); for tests and troubleshooting */
+  parallel?: boolean;
   /** same files as the last analysis and only the zone changed: reuse its decoded samples and detector boxes */
   reuse?: boolean;
   modelUrl: string;
@@ -61,11 +63,21 @@ export interface Diagnostics {
   /** true when the decoded samples of an earlier run were reused (decodeS is then 0) */
   reused?: boolean;
   replayS?: number;
-  /** where the decode stage spent its time, in seconds: luma sample, pass 1, thumbnails, sparse detector calls */
+  /** Where the decode stage spent its time, in seconds. lumaS is the analysis worker's own time for the luma samples. pass1S and thumbS
+   * are the work time of whoever did it (with helper workers it runs beside the decode loop, so it does not add to decodeS).
+   * strideDetectorS is the analysis worker's share of the sparse detector calls: reading the frame back and waiting for a free slot. */
   lumaS?: number;
   pass1S?: number;
   thumbS?: number;
   strideDetectorS?: number;
+  /** helper workers in use (false: the work was done in the analysis worker); detectorIsolated: cross-origin isolation where the detector runs */
+  detectorWorker?: boolean;
+  sideWorker?: boolean;
+  detectorIsolated?: boolean;
+  /** decode stage, analysis worker: time spent handing samples to the pass-1 / thumbnail helper (or doing that work itself), and waiting
+   * for the helpers after the last frame */
+  sideWaitS?: number;
+  tailWaitS?: number;
   /** creating the detector: model download, sessions, and for 'auto' / WebGPU the check against the CPU */
   detectorSetupS?: number;
   /** inside lumaS: copying the frame out of the decoder, and shrinking it to the 640-px luma */

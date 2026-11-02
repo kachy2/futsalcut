@@ -25,8 +25,13 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
     perspective: diag.perspective }));
   console.log('timing', JSON.stringify({ decodeS: diag.decodeS, lumaS: diag.lumaS, pass1S: diag.pass1S, thumbS: diag.thumbS,
     strideDetectorS: diag.strideDetectorS, featuresS: diag.featuresS, detectorS: diag.detectorS, redecodeS: diag.redecodeS,
-    detectorSetupS: diag.detectorSetupS, lumaCopyS: diag.lumaCopyS, lumaShrinkS: diag.lumaShrinkS, frameToBoxesS: diag.frameToBoxesS }));
+    detectorSetupS: diag.detectorSetupS, lumaCopyS: diag.lumaCopyS, lumaShrinkS: diag.lumaShrinkS, frameToBoxesS: diag.frameToBoxesS,
+    sideWaitS: diag.sideWaitS, tailWaitS: diag.tailWaitS, detectorWorker: diag.detectorWorker, sideWorker: diag.sideWorker,
+    detectorIsolated: diag.detectorIsolated }));
   expect(diag.detectorBackend).toMatch(/wasm|webgpu/); // the detector must always end up running
+  const parallel = !/parallel=0/.test(process.env.APP_QUERY ?? '');
+  expect([diag.detectorWorker, diag.sideWorker]).toEqual([parallel, parallel]); // the helper workers did start (or were switched off)
+  if (parallel) expect(diag.detectorIsolated).toBe(true); // also in the worker inside the worker: WASM threads need it
   if (process.env.EXPECT_BACKEND) expect(diag.detectorBackend).toBe(process.env.EXPECT_BACKEND);
   if (process.env.EXPECT_CHECK) expect(String(diag.detectorGpuCheck)).toMatch(new RegExp(process.env.EXPECT_CHECK));
   expect(diag.crossOriginIsolated).toBe(true); // the service worker made the page isolated (WASM threads)
@@ -59,15 +64,17 @@ test('analyze and export the synthetic recording', async ({ baseURL }) => {
   const m = saved!.match(/(\d+):(\d\d)/);
   expect(m).not.toBeNull();
   expect(Math.abs(Number(m![1]) * 60 + Number(m![2]) - keptS)).toBeLessThanOrEqual(1);
-  // detector self-test from the diagnostics panel
-  await page.locator('details summary').click();
-  await page.locator('#probe').click();
-  await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: PROBE_WAIT_MS });
-  console.log('detector probe:', await page.locator('#probe-result').textContent());
-  if (process.env.DETECTOR === 'webgpu') {
-    await page.locator('#probe-webgpu').click();
+  // detector self-test from the diagnostics panel (SKIP_PROBE=1: not with a software WebGPU adapter, where it takes ten minutes)
+  if (!process.env.SKIP_PROBE) {
+    await page.locator('details summary').click();
+    await page.locator('#probe').click();
     await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: PROBE_WAIT_MS });
-    console.log('webgpu probe:', await page.locator('#probe-result').textContent());
+    console.log('detector probe:', await page.locator('#probe-result').textContent());
+    if (process.env.DETECTOR === 'webgpu') {
+      await page.locator('#probe-webgpu').click();
+      await expect(page.locator('#probe-result')).not.toHaveText('…', { timeout: PROBE_WAIT_MS });
+      console.log('webgpu probe:', await page.locator('#probe-result').textContent());
+    }
   }
   if (logs.some((l) => /^\[(pageerror|warning|error)\]/.test(l))) console.log(logs.join('\n'));
   await ctx.close();

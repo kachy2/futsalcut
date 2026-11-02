@@ -51,10 +51,11 @@
   const hasResult = $derived(!!result && analyzedKey === filesKey);
   const canReuse = $derived(hasResult && result?.diagnostics.sampleStore !== 'none');
   // test overrides: ?threads=N sets the detector's WASM threads, ?gpuwait=S the seconds WebGPU may take to set up,
-  // ?gpuany=1 lets 'auto' take a software WebGPU adapter
+  // ?gpuany=1 lets 'auto' take a software WebGPU adapter, ?parallel=0 keeps the detector and pass 1 in the analysis worker (no helper workers)
   const threads = Number(new URLSearchParams(location.search).get('threads')) || undefined;
   const webgpuWaitS = Number(new URLSearchParams(location.search).get('gpuwait')) || undefined;
   const anyGpu = new URLSearchParams(location.search).get('gpuany') === '1' || undefined; // ?gpuany=1: 'auto' may use a software adapter
+  const parallel = new URLSearchParams(location.search).get('parallel') === '0' ? false : undefined;
 
   // controls
   let mode = $state<'auto' | 'sens' | 'target'>('auto');
@@ -170,7 +171,7 @@
     progress = { stage: reuse ? 'replay' : 'decode', done: 0, total: 0, sessionDoneS: 0, wallS: 0 };
     analyzer.postMessage({
       type: 'analyze', files: $state.snapshot(files), zone: $state.snapshot(zone), detector: 'auto', detectorBackend,
-      reuse, ortThreads: threads, webgpuWaitS, anyGpu, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
+      reuse, ortThreads: threads, webgpuWaitS, anyGpu, parallel, modelUrl: new URL('models/dfine_n_coco.onnx', base).href,
       modelJson: $state.snapshot(model),
     });
   }
@@ -210,6 +211,7 @@
     (window as unknown as { __futsalcut?: unknown }).__futsalcut = {
       intervals: selection.intervals, threshold: selection.threshold, t: result ? Array.from(result.t) : [],
       prob: Array.from(prob), light: result ? Array.from(result.light) : [], detector: result?.detector ?? [],
+      get thumbs() { return thumbs.filter(Boolean).length; }, // previews received so far
     };
   });
 

@@ -25,10 +25,10 @@ export async function launch(baseURL: string | undefined): Promise<{ ctx: Browse
   return { ctx, page, logs };
 }
 
-/** Open the app (ORT_THREADS=n adds ?threads=n; APP_QUERY adds any query, e.g. ?gpuwait=600), wait until the service worker has
- * isolated the page, pick the video, go to the zone step. */
-export async function openApp(page: Page): Promise<void> {
-  const query = process.env.APP_QUERY ?? (process.env.ORT_THREADS ? `?threads=${process.env.ORT_THREADS}` : '');
+/** Open the app (ORT_THREADS=n adds ?threads=n; APP_QUERY adds any query, e.g. ?gpuwait=600; `query` overrides both), wait until the
+ * service worker has isolated the page, pick the video, go to the zone step. */
+export async function openApp(page: Page, query?: string): Promise<void> {
+  query ??= process.env.APP_QUERY ?? (process.env.ORT_THREADS ? `?threads=${process.env.ORT_THREADS}` : '');
   await page.goto((process.env.APP_URL ? '' : '/') + query); // '' = the base URL itself (keeps a /<repo>/ path)
   // the first visit installs the service worker and reloads once; WASM threads need the isolated page
   await expect.poll(() => page.evaluate(() => crossOriginIsolated).catch(() => false), { timeout: 60_000 }).toBe(true);
@@ -50,7 +50,7 @@ export async function drawZone(page: Page, pts: Zone): Promise<void> {
 export const REVIEW = /결과 확인|Review/;
 export const DRAW = /구역 그리기|Draw the zone/;
 
-interface Hook { intervals: [number, number][]; prob: number[]; light: number[]; detector: [number, number][] }
+interface Hook { intervals: [number, number][]; prob: number[]; light: number[]; detector: [number, number][]; thumbs: number }
 
 /** Press Analyze and wait for the review step; returns the diagnostics and the result the app exposes for tests. */
 export async function analyze(page: Page): Promise<{ diag: Record<string, any>; hook: Hook }> { // eslint-disable-line @typescript-eslint/no-explicit-any

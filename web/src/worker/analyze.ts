@@ -1,25 +1,28 @@
 /// <reference lib="webworker" />
 /**
- * Analysis worker: keyframe decode (WebCodecs) -> streaming pass 1 -> thumbnails -> detector on a sparse
- * stride (perspective) -> pass 2 -> light ensemble -> detector on unsure samples (cascade).
+ * Analysis worker: keyframe decode (WebCodecs) -> luma samples, with streaming pass 1 and the thumbnails in a helper worker and the
+ * detector (also a worker of its own) on a sparse stride (perspective) -> pass 2 -> light ensemble -> detector on unsure samples
+ * (cascade): the frame for the next detector call is prepared here while the detector works on the last one.
  * The luma samples and the detector boxes of the last run are kept (see Cache), so that a new zone for the
  * same files is evaluated without decoding the video again.
  */
 import { ALL_FORMATS, BlobSource, EncodedPacketSink, Input, type InputVideoTrack } from 'mediabunny';
 import { pass2, perspectiveFromBlobs, perspectiveFromBoxes, type Pass1, type Perspective } from '../core/features';
+import { Limiter } from '../core/limiter';
 import { cascadeProb, detectorCount, lightProb, unsureSamples, type ModelFile } from '../core/model';
 import { polygonMask } from '../core/roi';
 import type { AnalysisResult, AnalyzeRequest, Diagnostics, SessionFile, WorkerMessage } from '../core/session';
 import { StreamingPass1 } from '../core/streaming';
-import { createDetector, type Detector } from './detector';
+import { createPipelinedDetector, type PipelinedDetector } from './detector-client';
 import { drawRotated, frameToLuma, lumaClock } from './luma';
+import { openSide, type SideWork } from './side-client';
 
 const MIN_SPACING = 0.9; // seconds between taken keyframes (same rule as the Python sampler)
-const THUMB_W = 192;
-const THUMB_H = 108;
-const THUMB_BATCH = 40;
+const IN_FLIGHT = 3;               // cascade: detector calls handed over before the first answer is back (detector in its own worker)
+const STRIDE_QUEUE = 24;           // sparse calls while decoding: frames (1.6 MB each) that may wait for the detector, which is still being set up at first
 const UNSURE_SHARE = 0.3;          // about this share of the samples is uncertain (29% on the evaluated recording): guess for the time estimate
-const KEYFRAME_REDECODE_S = 0.3;   // decoding one key frame again for the cascade
+const KEYFRAME_REDECODE_S = 0.3;   // decoding one key frame again for the cascade (the detector runs in this thread then: no overlap)
+const OVERLAPPED_PREP_S = 0.05;    // what a cascade item costs on top of the detector call when the detector has a worker of its own
 const STORE_PREFIX = 'futsalcut-samples-';
 const MEM_BUDGET = 512 * 2 ** 20; // bytes of luma kept in memory when there is no private file system
 
@@ -233,7 +236,7 @@ interface Cache {
   exact: number;
   fallback: number;
   decodeS: number;
-  detector: Detector | null;
+  detector: PipelinedDetector | null;
   detectorAsked: string;
   detMs: number;                  // mean detector call, for the first time estimate of a later run
   complete: boolean;              // all samples decoded and stored
@@ -258,39 +261,50 @@ interface Run {
   /** seconds since the analysis began */
   wall(): number;
   sessionS: number;
+  /** milliseconds per detector call (inference only), for the pace estimate and the diagnostics */
   detTimes: number[];
-  timing: { luma: number; pass1: number; thumb: number; strideDet: number; redecode: number; replay: number; prep: number; setup: number };
-  getDetector(): Promise<Detector | null>;
+  timing: { luma: number; pass1: number; thumb: number; strideDet: number; redecode: number; replay: number; prep: number; setup: number;
+    side: number; tail: number };
+  /** whether pass 1 and the thumbnails ran in a helper worker (null: this run did not decode) */
+  sideRemote: boolean | null;
+  getDetector(): Promise<PipelinedDetector | null>;
 }
 
-/** Frame -> 640x640 RGBA -> person boxes (normalized x1, y1, x2, y2, score). */
-class BoxFinder {
+/** Frame -> the 640x640 RGBA pixels the detector takes. Drawing a 4K frame small and reading it back costs about 0.1 s. */
+class FramePrep {
   private ctx = new OffscreenCanvas(640, 640).getContext('2d', { willReadFrequently: true })!;
-  constructor(private detector: Detector, private times: number[], private timing: Run['timing']) {}
+  constructor(private timing: Run['timing']) {}
 
-  async find(frame: VideoFrame, rotation: number): Promise<number[][]> {
+  pixels(frame: VideoFrame, rotation: number): Uint8ClampedArray {
     const p0 = performance.now();
     drawRotated(this.ctx, frame, rotation, 640, 640);
     const px = this.ctx.getImageData(0, 0, 640, 640).data;
-    const s = performance.now();
-    this.timing.prep += (s - p0) / 1000;
-    const boxes = await this.detector.detect(px);
-    this.times.push(performance.now() - s);
-    return boxes;
+    this.timing.prep += (performance.now() - p0) / 1000;
+    return px;
   }
 }
 
-/** Decode every keyframe once: luma samples -> pass 1 (zone dependent) and the sample store, thumbnails, sparse detector boxes. */
+/** Seconds one cascade item takes: the detector call, plus the frame work that does not overlap with it (all of it if the detector runs in this thread). */
+const cascadeItemS = (detMs: number, overlapped: boolean) => detMs / 1000 + (overlapped ? OVERLAPPED_PREP_S : KEYFRAME_REDECODE_S);
+
+/** Decode every keyframe once: luma samples -> the sample store; pass 1 (zone dependent) and the thumbnails in a helper worker; sparse detector boxes. */
 async function decodeAll(run: Run): Promise<Pass1[]> {
+  const side = await openSide(run.req.parallel !== false, (start, blobs) => post({ type: 'thumbs', start, blobs }));
+  run.sideRemote = side.remote;
+  try {
+    return await decodeWith(run, side);
+  } finally {
+    side.close();
+  }
+}
+
+async function decodeWith(run: Run, side: SideWork): Promise<Pass1[]> {
   const { req, c, timing } = run;
-  const detector = await run.getDetector();
-  const finder = detector ? new BoxFinder(detector, run.detTimes, timing) : null;
+  const detectorP = run.getDetector(); // set up while the decoding goes on: the frames meant for it wait until it is ready
+  const prep = req.detector === 'off' ? null : new FramePrep(timing);
   const stride = run.model.detector.perspective_stride;
-  const thumbCanvas = new OffscreenCanvas(THUMB_W, THUMB_H);
-  const thumbCtx = thumbCanvas.getContext('2d')!;
-  const st = { sp: null as StreamingPass1 | null }; // assigned inside the async frame handler (closure), hence a holder object
-  let thumbs: Blob[] = [];
-  let thumbStart = 0;
+  const calls = new Limiter(STRIDE_QUEUE); // the same bound before and after the detector is ready, or the decoding would stop to let the backlog drain
+  let started = false;
   const lap = (since: number) => (performance.now() - since) / 1000;
 
   for (let fi = 0; fi < c.opened.length; fi++) {
@@ -311,33 +325,32 @@ async function decodeAll(run: Run): Promise<Pass1[]> {
         timing.luma += lap(s);
         c.formats.add(luma.format);
         if (luma.path === 'exact') c.exact++; else c.fallback++;
-        if (!st.sp) {
+        if (!started) {
+          started = true;
           c.W = luma.w;
           c.H = luma.h;
-          st.sp = new StreamingPass1(c.W, c.H, polygonMask(req.zone, c.W, c.H));
+          side.start(c.W, c.H, req.zone);
           await c.store.open(c.W * c.H);
         }
-        const idx = st.sp.count;
+        const idx = c.t.length;
         c.store.append(luma.data);
         s = performance.now();
-        st.sp.push(luma.data);
-        timing.pass1 += lap(s);
+        await side.push(luma.data, f, o.info.rotation); // pass 1 and the thumbnail; with a helper worker they run beside the decoding
+        timing.side += lap(s);
         c.t.push(o.info.offsetS + lt);
         c.fileIndex.push(fi);
         c.localT.push(lt);
-        s = performance.now();
-        drawRotated(thumbCtx, f, o.info.rotation, THUMB_W, THUMB_H);
-        thumbs.push(await thumbCanvas.convertToBlob({ type: 'image/jpeg', quality: 0.7 }));
-        if (thumbs.length >= THUMB_BATCH) {
-          post({ type: 'thumbs', start: thumbStart, blobs: thumbs });
-          thumbStart += thumbs.length;
-          thumbs = [];
-        }
-        timing.thumb += lap(s);
-        if (finder && idx % stride === 0) {
+        if (prep && idx % stride === 0) {
           s = performance.now();
-          c.boxes.set(idx, await finder.find(f, o.info.rotation));
+          const px = prep.pixels(f, o.info.rotation);
           c.strideIdx.push(idx);
+          await calls.run(async () => { // the answer comes in while decoding goes on; a failure surfaces in the next run() or in drain()
+            const d = await detectorP;
+            if (!d) return;
+            const det = await d.submit(px);
+            run.detTimes.push(det.ms);
+            c.boxes.set(idx, det.boxes);
+          });
           timing.strideDet += lap(s);
         }
       } finally {
@@ -360,7 +373,7 @@ async function decodeAll(run: Run): Promise<Pass1[]> {
         }
         const detMs = run.detTimes.length >= 2 ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : 0;
         post({ type: 'progress', stage: 'decode', done: c.t.length, total: 0, sessionDoneS: c.t.length ? c.t[c.t.length - 1] : 0,
-          wallS: run.wall(), detGuessS: detMs ? UNSURE_SHARE * run.sessionS * (detMs / 1000 + KEYFRAME_REDECODE_S) : undefined });
+          wallS: run.wall(), detGuessS: detMs ? UNSURE_SHARE * run.sessionS * cascadeItemS(detMs, !!c.detector?.remote) : undefined });
       }
       await dec.flush();
       while (frames.length) await handle(frames.shift()!);
@@ -370,13 +383,16 @@ async function decodeAll(run: Run): Promise<Pass1[]> {
     }
     c.decodeS += lap(d0);
   }
-  if (thumbs.length) post({ type: 'thumbs', start: thumbStart, blobs: thumbs });
-  if (!st.sp) throw new Error('no samples decoded');
+  if (!started) throw new Error('no samples decoded');
   c.complete = true;
-  const s = performance.now();
-  const p1 = st.sp.end();
-  timing.pass1 += lap(s);
-  return p1;
+  const w0 = performance.now();
+  await calls.drain(); // sparse detector calls that are still running
+  const done = await side.end();
+  timing.tail = lap(w0);
+  timing.pass1 = done.pass1S;
+  timing.thumb = done.thumbS;
+  c.strideIdx = c.strideIdx.filter((i) => c.boxes.has(i)); // without a detector there are no boxes
+  return done.pass1;
 }
 
 /** Pass 1 again for a new zone, from the stored samples. */
@@ -421,28 +437,38 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
   const bad = files.filter((f) => !f.supported);
   if (bad.length) throw new Error(`이 브라우저에서 디코딩할 수 없는 코덱: ${bad.map((f) => `${f.name} (${f.codecString})`).join(', ')}`);
 
+  let creating: Promise<PipelinedDetector | null> | null = null; // one setup per run, however often the detector is asked for
   const run: Run = {
     req, model, c, t0, wall: () => (performance.now() - t0) / 1000, sessionS: files.reduce((s, f) => s + f.durationS, 0), detTimes: [],
-    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0, prep: 0, setup: 0 },
-    async getDetector() {
-      if (req.detector === 'off') return null;
-      const asked = `${req.detectorBackend ?? 'auto'}/${req.ortThreads ?? 0}`;
-      if (c.detector && c.detectorAsked !== asked) {
-        await c.detector.release().catch(() => undefined);
-        c.detector = null;
-      }
-      if (!c.detector) {
-        const s0 = performance.now();
-        try {
-          c.detector = await createDetector(req.modelUrl, req.detectorBackend ?? 'auto', req.ortThreads,
-            { webgpuWaitMs: req.webgpuWaitS ? req.webgpuWaitS * 1000 : undefined, anyGpu: req.anyGpu });
-          c.detectorAsked = asked;
-        } catch (e) {
-          console.warn('detector unavailable', e);
+    timing: { luma: 0, pass1: 0, thumb: 0, strideDet: 0, redecode: 0, replay: 0, prep: 0, setup: 0, side: 0, tail: 0 },
+    sideRemote: null,
+    getDetector() {
+      creating ??= (async () => {
+        if (req.detector === 'off') return null;
+        const asked = `${req.detectorBackend ?? 'auto'}/${req.ortThreads ?? 0}`;
+        if (c.detector && c.detectorAsked !== asked) {
+          await c.detector.release().catch(() => undefined);
+          c.detector = null;
         }
-        run.timing.setup += (performance.now() - s0) / 1000;
-      }
-      return c.detector;
+        if (!c.detector) {
+          const s0 = performance.now();
+          try {
+            const made = await createPipelinedDetector(req.modelUrl, req.detectorBackend ?? 'auto', req.ortThreads,
+              { webgpuWaitMs: req.webgpuWaitS ? req.webgpuWaitS * 1000 : undefined, anyGpu: req.anyGpu }, req.parallel !== false);
+            if (cache !== c) { // cancelled or dropped while it was being set up: nobody would release it
+              await made.release().catch(() => undefined);
+              return null;
+            }
+            c.detector = made;
+            c.detectorAsked = asked;
+          } catch (e) {
+            console.warn('detector unavailable', e);
+          }
+          run.timing.setup += (performance.now() - s0) / 1000;
+        }
+        return c.detector;
+      })();
+      return creating;
     },
   };
 
@@ -472,10 +498,15 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
     const todo = unsure.filter((i) => !c.boxes.has(i));
     const detector = todo.length || !c.boxes.size ? await run.getDetector() : c.detector;
     if (detector && todo.length) {
-      const finder = new BoxFinder(detector, run.detTimes, run.timing);
-      const hint = (run.detTimes.length ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : c.detMs || 1500) / 1000 + KEYFRAME_REDECODE_S;
+      const prep = new FramePrep(run.timing);
+      const calls = new Limiter(detector.remote ? IN_FLIGHT : 1);
+      const meanMs = run.detTimes.length ? run.detTimes.reduce((a, b) => a + b, 0) / run.detTimes.length : c.detMs || 1500;
+      const hint = cascadeItemS(meanMs, detector.remote);
+      let finished = 0; // items done: detected, or skipped because their frame could not be decoded
+      let over = false; // the loop has ended (done, cancelled or failed): late answers must not post progress any more
       const progress = (done: number) => post({ type: 'progress', stage: 'detector', done, total: todo.length, sessionDoneS: run.sessionS,
         wallS: run.wall(), stageWallS: (performance.now() - ds0) / 1000, itemHintS: hint });
+      const finish = () => { finished++; if (!over) progress(finished); };
       progress(0);
       const start = (i: number) => c.readers[c.fileIndex[i]].read(c.localT[i]);
       let next: Promise<VideoFrame | null> | null = start(todo[0]);
@@ -485,22 +516,32 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
           const i = todo[k];
           const s = performance.now();
           const frame = await next;
-          next = k + 1 < todo.length ? start(todo[k + 1]) : null; // decodes while the detector works on this one
+          next = k + 1 < todo.length ? start(todo[k + 1]) : null; // decodes while this frame is prepared and the detector works
           run.timing.redecode += (performance.now() - s) / 1000;
           if (frame) {
+            let px: Uint8ClampedArray;
             try {
-              const boxes = await finder.find(frame, files[c.fileIndex[i]].rotation);
-              c.boxes.set(i, boxes);
-              detScores.set(i, count(boxes));
+              px = prep.pixels(frame, files[c.fileIndex[i]].rotation);
             } finally {
               frame.close();
             }
+            // the detector works on this one while the loop goes on to prepare the next frame
+            await calls.run(async () => {
+              const det = await detector.submit(px);
+              run.detTimes.push(det.ms);
+              c.boxes.set(i, det.boxes);
+              detScores.set(i, count(det.boxes));
+              finish();
+            });
+          } else {
+            finish();
           }
           // samples are in file order: a 4K hardware decoder that is no longer needed should not stay allocated
           if (k + 1 >= todo.length || c.fileIndex[todo[k + 1]] !== c.fileIndex[i]) c.readers[c.fileIndex[i]].close();
-          progress(k + 1);
         }
+        await calls.drain();
       } finally {
+        over = true;
         (await next?.catch(() => null))?.close(); // a prefetched frame nobody used
         for (const r of c.readers) r.close();
       }
@@ -519,6 +560,8 @@ async function analyze(req: AnalyzeRequest): Promise<void> {
     reused: reuse, replayS: run.timing.replay, lumaS: run.timing.luma, pass1S: run.timing.pass1, thumbS: run.timing.thumb,
     strideDetectorS: run.timing.strideDet, redecodeS: run.timing.redecode, sampleStore: c.store.kind,
     detectorSetupS: run.timing.setup, lumaCopyS: reuse ? 0 : lumaClock.copy, lumaShrinkS: reuse ? 0 : lumaClock.shrink, frameToBoxesS: run.timing.prep,
+    detectorWorker: detector?.remote, sideWorker: run.sideRemote ?? undefined, detectorIsolated: detector?.isolated,
+    sideWaitS: run.timing.side, tailWaitS: run.timing.tail,
     perspective: persp, userAgent: navigator.userAgent,
   };
   const result: AnalysisResult = {
