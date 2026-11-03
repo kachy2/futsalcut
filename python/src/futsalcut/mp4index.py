@@ -105,10 +105,10 @@ def _full_box_version(f: BinaryIO, start: int) -> int:
 def _parse_trak(f: BinaryIO, start: int, end: int) -> Track:
     t = Track()
 
-    def walk(s: int, e: int) -> None:
+    def walk(s: int, e: int, parent: bytes = b"") -> None:
         for typ, bs, be in _boxes(f, s, e):
             if typ in _CONTAINERS:
-                walk(bs, be)
+                walk(bs, be, typ)
             elif typ == b"tkhd":
                 f.seek(bs)
                 d = f.read(be - bs)
@@ -128,7 +128,7 @@ def _parse_trak(f: BinaryIO, start: int, end: int) -> Track:
                     t.timescale, t.duration = struct.unpack(">IQ", d[20:32])
                 else:
                     t.timescale, t.duration = struct.unpack(">II", d[12:20])
-            elif typ == b"hdlr":
+            elif typ == b"hdlr" and parent == b"mdia":  # minf may hold a second, data-handler hdlr
                 f.seek(bs + 8)
                 t.handler = f.read(4).decode("latin1")
             elif typ == b"stsd":
